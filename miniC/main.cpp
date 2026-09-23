@@ -1,3 +1,4 @@
+﻿#include <windows.h>
 #include <iostream>
 #include <string>
 #include <fstream>
@@ -21,7 +22,7 @@ enum class TokenClass {
 };
 
 enum class TokenCode {
-	//������� 3
+	//Таблица 3
 	kwInt = 1,
 	kwWord,
 	kwBool,
@@ -31,13 +32,13 @@ enum class TokenCode {
 	kwReturn,
 	kwMain,
 
-	//������� 4
+	//Таблица 4
 	Identfier = 9,
 	IntConst = 10,
 	BoolTrue,
 	BoolFalse,
 
-	//������� 5
+	//Таблица 5
 	OpAssign = 13,
 	OpPlus,
 	OpMinus,
@@ -50,13 +51,13 @@ enum class TokenCode {
 	OpBolee,
 	OpMenAssi,
 	OpBolAssi,
-	OpDoubleAssi,
+	OpEq,
 	OpNotAssign,
 	OpLogAnd,
 	OpLogOr,
 	OpLogNot,
 
-	//������� 6
+	//Таблица 6
 	LParent = 30,
 	RParent,
 	LFigParent,
@@ -64,7 +65,7 @@ enum class TokenCode {
 	DotComm,
 	Comm,
 
-	//������� 7
+	//Таблица 7
 	Error = 36,
 	Comment = 37,
 	EndOfFile = 38
@@ -77,11 +78,11 @@ struct Token {
 	int line;
 	int colStart;
 	int colEnd;
-	int value; //����� ��������������
+	int value; //Номер идентификатора
 };
 
 const unordered_map<string, TokenCode> keywords = {
-	//�������� �����, ������� 3
+	//Ключевые слова, таблица 3
 	{"int",    TokenCode::kwInt},
 	{"word",   TokenCode::kwWord},
 	{"bool",   TokenCode::kwBool},
@@ -95,27 +96,77 @@ const unordered_map<string, TokenCode> keywords = {
 };
 
 string codeName(TokenCode code) {
-	switch (switch_on)
-	{
-	default:
-		break;
+	switch (code) {
+		// Таблица 3 — ключевые слова
+	case TokenCode::kwInt:        return "тип int";
+	case TokenCode::kwWord:       return "тип word";
+	case TokenCode::kwBool:       return "тип bool";
+	case TokenCode::kwIf:         return "условный оператор";
+	case TokenCode::kwElse:       return "альтернативная ветвь";
+	case TokenCode::kwWhile:      return "цикл с предусловием";
+	case TokenCode::kwReturn:     return "возврат из функции";
+	case TokenCode::kwMain:       return "точка входа";
+
+		// Таблица 4 — идентификаторы и константы
+	case TokenCode::Identfier:    return "идентификатор";
+	case TokenCode::IntConst:     return "целая константа";
+	case TokenCode::BoolTrue:     return "логическая константа";
+	case TokenCode::BoolFalse:    return "логическая константа";
+
+		// Таблица 5 — операции
+	case TokenCode::OpAssign:     return "присваивание";
+	case TokenCode::OpPlus:       return "сложение";
+	case TokenCode::OpMinus:      return "вычитание";
+	case TokenCode::OpMult:       return "умножение";
+	case TokenCode::OpDiv:        return "деление";
+	case TokenCode::OpDivPerc:    return "остаток от деления";
+	case TokenCode::OpMoveLeft:   return "сдвиг влево";
+	case TokenCode::OpMoveRight:  return "сдвиг вправо";
+	case TokenCode::OpMenee:      return "меньше";
+	case TokenCode::OpBolee:      return "больше";
+	case TokenCode::OpMenAssi:    return "меньше или равно";
+	case TokenCode::OpBolAssi:    return "больше или равно";
+	case TokenCode::OpEq: return "равно";
+	case TokenCode::OpNotAssign:  return "не равно";
+	case TokenCode::OpLogAnd:     return "логическое И";
+	case TokenCode::OpLogOr:      return "логическое ИЛИ";
+	case TokenCode::OpLogNot:     return "логическое НЕ";
+
+		// Таблица 6 — разделители
+	case TokenCode::LParent:      return "открывающая скобка";
+	case TokenCode::RParent:      return "закрывающая скобка";
+	case TokenCode::LFigParent:   return "начало блока";
+	case TokenCode::RFigParent:   return "конец блока";
+	case TokenCode::DotComm:      return "конец оператора";
+	case TokenCode::Comm:         return "запятая";
+
+		// Таблица 7 — служебные
+	case TokenCode::Error:        return "недопустимая лексема";
+	case TokenCode::Comment:      return "комментарий";
+	case TokenCode::EndOfFile:    return "конец файла";
 	}
+	return "?";
 }
 
 string className(TokenClass cls) {
-	switch (switch_on)
+	switch (cls)
 	{
-	default:
-		break;
+	case TokenClass::Keyword: return "ключевое слово";
+	case TokenClass::Identificator: return "идентификатор";
+	case TokenClass::Separator: return "разделитель";
+	case TokenClass::Const: return "константа";
+	case TokenClass::Mistake: return "ошибка";
+	case TokenClass::OpSign: return "знак операции";
 	}
+	return "Не знать иного!";
 }
 
 string readFile(const string& path) {
-	//����� ����� � ��� ��������
+	//Читка файла и его проверка
 	ifstream file(path);
 
 	if (!file.is_open()) {
-		return "�� - ��� �����";
+		return "";
 	}
 	stringstream ss;
 
@@ -125,7 +176,7 @@ string readFile(const string& path) {
 }
 
 void printSource(const string& text) {
-	//����� ���������: 1|�����
+	//Вывод построчно: 1|текст
 	istringstream time_text(text);
 	string t;
 
@@ -141,11 +192,18 @@ void printSource(const string& text) {
 
 
 int main(int args, char* argv[]) {
-	//argv[1]  - ����
-	setlocale(LC_ALL, "");
+	//argv[1]  - путь
+	SetConsoleOutputCP(CP_UTF8);
 
 	string path = (args > 1) ? argv[1] : "test.mc";
 
 	string text = readFile(path);
 	printSource(text);
+
+	Token t{ TokenClass::Keyword, TokenCode::kwWhile, "while", 2, 5, 9, 0 };
+	cout << className(t.cls) << " - " << t.text << " - строка " << t.line
+		<< ", с " << t.colStart << " по " << t.colEnd << " символ\n";
 }
+//git add .
+//git commit -m ""
+//git push
