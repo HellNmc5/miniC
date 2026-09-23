@@ -79,6 +79,7 @@ string className(TokenClass cls) {
 	case TokenClass::Const: return "константа";
 	case TokenClass::Mistake: return "ошибка";
 	case TokenClass::OpSign: return "знак операции";
+	case TokenClass::Service: return "служебный";
 	}
 	return "Не знать иного!";
 }
@@ -143,6 +144,81 @@ bool Lexer::isDigit(char c) {
 
 bool Lexer::isSpace(char c) {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+Token Lexer::nextToken() {
+	skipSpace();
+
+	int startLine = ln;
+	int startCol = cl;
+
+	
+
+	if (atEnd()) {
+		// вернуть лексему makeToken
+		return makeToken(TokenClass::Service, TokenCode::EndOfFile, "", startLine, startCol);
+	}
+
+	char c = peek();
+
+	if (isLetter(c)) {
+		//идентификатор/ключСлово
+		string word;
+		while (isLetter(peek()) || isDigit(peek())) {
+			word += advance();
+		}
+		auto t = keywords.find(word);
+
+		if (t == keywords.end()) {
+			//Если в словаре нет, то обычный идентификатор
+			return makeToken(TokenClass::Identificator, TokenCode::Identfier, word, startLine, startCol);
+		}
+
+		TokenCode code = t->second;
+
+		if (code == TokenCode::BoolTrue) {
+			return makeToken(TokenClass::Const, code, word, startLine, startCol, 1);
+		}
+		if (code == TokenCode::BoolFalse) {
+			return makeToken(TokenClass::Const, code, word, startLine, startCol, 0);
+		}
+		return makeToken(TokenClass::Keyword, code, word, startLine, startCol);
+	}
+	if (isDigit(c)) {
+		// константа — следующим заходом
+		string word;
+		while (isDigit(peek())) {
+			word += advance();
+
+		}
+		return makeToken(TokenClass::Const, TokenCode::IntConst, word, startLine, startCol, stoi(word));
+	}
+
+	// всё остальное пока — ошибка: съесть символ, вернуть Error
+	string bad(1, advance());
+	return makeToken(TokenClass::Mistake, TokenCode::Error, bad, startLine, startCol);
+	
+}
+
+Token Lexer::makeToken(TokenClass cls, TokenCode code, const string& text,
+	int line, int colStart, int value) {
+	Token t;
+	t.cls = cls;
+	t.code = code;
+	t.text = text;
+	t.line = line;
+	t.colStart = colStart;
+	int len = static_cast<int>(text.size());
+
+	if (len == 0) {
+		t.colEnd = colStart;
+	}
+	else {
+		t.colEnd = colStart + len - 1;
+	};
+
+	t.value = value;
+	return t;
 }
 
 int Lexer::line() const { return ln; }

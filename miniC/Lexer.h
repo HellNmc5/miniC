@@ -7,8 +7,8 @@ enum class TokenClass {
 	Const,
 	OpSign,
 	Separator,
-	Mistake
-
+	Mistake,
+	Service
 };
 
 enum class TokenCode {
@@ -85,6 +85,9 @@ public:
 
 	int line() const;
 	int col() const;
+
+	Token nextToken();
+
 	void skipSpace();//Скип комментариев и пробела
 private:
 	std::string text;
@@ -93,10 +96,13 @@ private:
 	int cl = 1;//номер колонки
 
 	
-
+	
 	//P.S. Для себя static, ибо не нать поля объекта
 	//Заодно пересоздаем isalpha и тп, возможно мусор, но да ладно, а вообще из за русских комментариев
 	static bool isLetter(char c);
 	static bool isDigit(char c);
 	static bool isSpace(char c);//' ', '\t', '\n'
+
+	static Token makeToken(TokenClass cls, TokenCode code, const std::string& text,
+		int line, int colStart, int value = 0);
 };

@@ -48,11 +48,10 @@ int main(int args, char* argv[]) {
 
 	Lexer lx(text);
 	while (true) {
-		lx.skipSpace();
-		if (lx.atEnd()) break;
-		int l = lx.line(), c = lx.col();
-		char ch = lx.advance();
-		cout << "'" << ch << "' " << l << ":" << c << '\n';
+		Token t = lx.nextToken();
+		if (t.code == TokenCode::EndOfFile) break;
+		cout << className(t.cls) << " - " << t.text << " - строка " << t.line
+			<< ", с " << t.colStart << " по " << t.colEnd << " символ\n";
 	}
 }
 //git add .
