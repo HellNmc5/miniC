@@ -46,9 +46,13 @@ int main(int args, char* argv[]) {
 	string text = readFile(path);
 	printSource(text);
 
-	Token t{ TokenClass::Keyword, TokenCode::kwWhile, "while", 2, 5, 9, 0 };
-	cout << className(t.cls) << " - " << t.text << " - строка " << t.line
-		<< ", с " << t.colStart << " по " << t.colEnd << " символ\n";
+	Lexer lx(text);
+	while (!lx.atEnd()) {
+		int l = lx.line(), c = lx.col();
+		char ch = lx.advance();
+		if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t')
+			cout << "'" << ch << "' " << l << ":" << c << '\n';
+	}
 }
 //git add .
 //git commit -m ""

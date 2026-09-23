@@ -17,7 +17,7 @@ const unordered_map<string, TokenCode> keywords = {
 	{"false",  TokenCode::BoolFalse}
 };
 
-std::string codeName(TokenCode code) {
+string codeName(TokenCode code) {
 	switch (code) {
 		// Таблица 3 — ключевые слова
 	case TokenCode::kwInt:        return "тип int";
@@ -70,7 +70,7 @@ std::string codeName(TokenCode code) {
 	return "?";
 }
 
-std::string className(TokenClass cls) {
+string className(TokenClass cls) {
 	switch (cls)
 	{
 	case TokenClass::Keyword: return "ключевое слово";
@@ -82,3 +82,38 @@ std::string className(TokenClass cls) {
 	}
 	return "Не знать иного!";
 }
+
+Lexer::Lexer(const string& source) : text(source) {
+
+}
+
+bool Lexer::atEnd() const {
+	//pos дошел ли до text.size()
+	return pos >= text.size();
+}
+
+char Lexer::peek(int ahead) const {
+	//Если pos+ahead >= конца, то вернем '\0', иначе text[pos+ahead]
+	return (pos + ahead >= text.size()) ? '\0' : text[pos + ahead];
+}
+
+char Lexer::advance() {
+	//Берем text[pos], двигаем pos
+	//'\n', то ln++,cl =1, иначе cl++
+	//вернем взятый символ
+	if (atEnd()) return '\0';
+
+	char ch = text[pos++];
+
+	if (ch == '\n') {
+		ln++;
+		cl = 1;
+	}
+	else {
+		cl++;
+	}
+	return ch;
+}
+
+int Lexer::line() const { return ln; }
+int Lexer::col() const { return cl; }
