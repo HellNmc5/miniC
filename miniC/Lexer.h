@@ -77,7 +77,7 @@ std::string className(TokenClass cls);
 
 class Lexer {
 public:
-	explicit Lexer(const std::string& source);
+	explicit Lexer(const std::string& source);//Конструктор - не ЛЕГО!
 
 	bool atEnd() const;//Чек - дошли ли до конца?
 	char peek(int ahead = 0) const;//Смотрим символ не двигаясь
@@ -85,10 +85,18 @@ public:
 
 	int line() const;
 	int col() const;
-
+	void skipSpace();//Скип комментариев и пробела
 private:
 	std::string text;
 	size_t pos = 0;//индекс текущего символа
 	int ln = 1;//номер строки
 	int cl = 1;//номер колонки
+
+	
+
+	//P.S. Для себя static, ибо не нать поля объекта
+	//Заодно пересоздаем isalpha и тп, возможно мусор, но да ладно, а вообще из за русских комментариев
+	static bool isLetter(char c);
+	static bool isDigit(char c);
+	static bool isSpace(char c);//' ', '\t', '\n'
 };

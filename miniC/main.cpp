@@ -47,11 +47,12 @@ int main(int args, char* argv[]) {
 	printSource(text);
 
 	Lexer lx(text);
-	while (!lx.atEnd()) {
+	while (true) {
+		lx.skipSpace();
+		if (lx.atEnd()) break;
 		int l = lx.line(), c = lx.col();
 		char ch = lx.advance();
-		if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t')
-			cout << "'" << ch << "' " << l << ":" << c << '\n';
+		cout << "'" << ch << "' " << l << ":" << c << '\n';
 	}
 }
 //git add .

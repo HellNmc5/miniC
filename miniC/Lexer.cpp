@@ -115,5 +115,35 @@ char Lexer::advance() {
 	return ch;
 }
 
+void Lexer::skipSpace() {
+	while (!atEnd()) {
+		if (isSpace(peek())) {
+			advance();
+		}
+		else if(peek() == '/' && peek(1) == '/') {
+			while (!atEnd() && peek() != '\n') {
+				advance();
+			}
+		}
+		else {
+			return;
+		}
+	}
+}
+
+bool Lexer::isLetter(char c) {
+	return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_');
+	
+}
+
+bool Lexer::isDigit(char c) {
+	return c >= '0' && c <= '9';
+	
+}
+
+bool Lexer::isSpace(char c) {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
 int Lexer::line() const { return ln; }
 int Lexer::col() const { return cl; }
