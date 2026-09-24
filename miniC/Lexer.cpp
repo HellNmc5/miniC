@@ -152,8 +152,6 @@ Token Lexer::nextToken() {
 	int startLine = ln;
 	int startCol = cl;
 
-	
-
 	if (atEnd()) {
 		// вернуть лексему makeToken
 		return makeToken(TokenClass::Service, TokenCode::EndOfFile, "", startLine, startCol);
@@ -194,10 +192,54 @@ Token Lexer::nextToken() {
 		return makeToken(TokenClass::Const, TokenCode::IntConst, word, startLine, startCol, stoi(word));
 	}
 
-	// всё остальное пока — ошибка: съесть символ, вернуть Error
-	string bad(1, advance());
-	return makeToken(TokenClass::Mistake, TokenCode::Error, bad, startLine, startCol);
-	
+	//TODO: дописать знаки
+	advance();   // первый символ забрали; какой он — уже знаем, это c
+
+	switch (c) {
+		//одиночные знаки
+	case '+': return makeToken(TokenClass::OpSign, TokenCode::OpPlus, "+", startLine, startCol);
+	case '(': return makeToken(TokenClass::Separator, TokenCode::LParent, "(", startLine, startCol);
+		//остальные: - * % ) { } ; ,
+	case '-': return makeToken(TokenClass::OpSign, TokenCode::OpMinus, "-", startLine, startCol);
+	case '*': return makeToken(TokenClass::OpSign, TokenCode::OpMult, "*", startLine, startCol);
+	case '%': return makeToken(TokenClass::OpSign, TokenCode::OpDivPerc, "%", startLine, startCol);
+	case ')': return makeToken(TokenClass::Separator, TokenCode::RParent, ")", startLine, startCol);
+	case '{': return makeToken(TokenClass::Separator, TokenCode::LFigParent, "{", startLine, startCol);
+	case '}': return makeToken(TokenClass::Separator, TokenCode::RFigParent, "}", startLine, startCol);
+	case ';': return makeToken(TokenClass::Separator, TokenCode::DotComm, ";", startLine, startCol);
+	case ',': return makeToken(TokenClass::Separator, TokenCode::Comm, ",", startLine, startCol);
+
+		//знаки с уточнением
+	case '<':
+		if (peek() == '<') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMoveLeft, "<<", startLine, startCol); }
+		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, "<=", startLine, startCol); }
+		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, "<", startLine, startCol);
+
+	case '&':
+		if (peek() == '&') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpLogAnd, "&&", startLine, startCol); }
+		return makeToken(TokenClass::Mistake, TokenCode::Error, "&", startLine, startCol);
+
+		// остальные: > = ! | /
+	case '>':
+		if (peek() == '>') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMoveLeft, ">>", startLine, startCol); }
+		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, ">=", startLine, startCol); }
+		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, ">", startLine, startCol);
+	case '=':
+		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, "==", startLine, startCol); }
+		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, "=", startLine, startCol);
+	case '!':
+		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, "!=", startLine, startCol); }
+		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, "!", startLine, startCol);
+	case '|':
+		if (peek() == '|') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpLogAnd, "||", startLine, startCol); }
+		return makeToken(TokenClass::Mistake, TokenCode::Error, "|", startLine, startCol);
+	case '/':
+		if (peek() == '/') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpLogAnd, "//", startLine, startCol); }
+		return makeToken(TokenClass::OpSign, TokenCode::OpDiv, "/", startLine, startCol);
+	}
+
+	// сюда попали — символ не подошёл ни под один case
+	return makeToken(TokenClass::Mistake, TokenCode::Error, string(1, c), startLine, startCol);
 }
 
 Token Lexer::makeToken(TokenClass cls, TokenCode code, const string& text,
