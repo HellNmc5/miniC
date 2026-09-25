@@ -103,6 +103,6 @@ private:
 	static bool isDigit(char c);
 	static bool isSpace(char c);//' ', '\t', '\n'
 
-	static Token makeToken(TokenClass cls, TokenCode code, const std::string& text,
+	static Token makeToken(TokenCode code, const std::string& text,
 		int line, int colStart, int value = 0);
 };

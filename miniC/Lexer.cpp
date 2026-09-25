@@ -1,21 +1,55 @@
 ﻿#include "Lexer.h"
 #include <unordered_map>
+#include <algorithm>
 
 using namespace std;
 
-const unordered_map<string, TokenCode> keywords = {
-	//Ключевые слова, таблица 3
-	{"int",    TokenCode::kwInt},
-	{"word",   TokenCode::kwWord},
-	{"bool",   TokenCode::kwBool},
-	{"if",     TokenCode::kwIf},
-	{"else",   TokenCode::kwElse},
-	{"while",  TokenCode::kwWhile},
-	{"return", TokenCode::kwReturn},
-	{"main",   TokenCode::kwMain},
-	{"true",   TokenCode::BoolTrue},
-	{"false",  TokenCode::BoolFalse}
-};
+namespace {
+	const unordered_map<string, TokenCode> keywords = {
+		//Ключевые слова, таблица 3
+		{"int",    TokenCode::kwInt},
+		{"word",   TokenCode::kwWord},
+		{"bool",   TokenCode::kwBool},
+		{"if",     TokenCode::kwIf},
+		{"else",   TokenCode::kwElse},
+		{"while",  TokenCode::kwWhile},
+		{"return", TokenCode::kwReturn},
+		{"main",   TokenCode::kwMain},
+		{"true",   TokenCode::BoolTrue},
+		{"false",  TokenCode::BoolFalse}
+	};
+
+	struct Pair {
+		char first, second; TokenCode code;
+	};
+
+	const Pair pairs[] = {
+		{ '<', '<', TokenCode::OpMoveLeft },  { '<', '=', TokenCode::OpMenAssi },
+		{ '>', '>', TokenCode::OpMoveRight }, { '>', '=', TokenCode::OpBolAssi },
+		{ '=', '=', TokenCode::OpEq },        { '!', '=', TokenCode::OpNotAssign },
+		{ '&', '&', TokenCode::OpLogAnd },    { '|', '|', TokenCode::OpLogOr },
+	};
+
+	const unordered_map<char, TokenCode> singles = {
+		{ '+', TokenCode::OpPlus },   { '-', TokenCode::OpMinus },  { '*', TokenCode::OpMult },
+		{ '/', TokenCode::OpDiv },    { '%', TokenCode::OpDivPerc },
+		{ '<', TokenCode::OpMenee },  { '>', TokenCode::OpBolee },
+		{ '=', TokenCode::OpAssign }, { '!', TokenCode::OpLogNot },
+		{ '(', TokenCode::LParent },  { ')', TokenCode::RParent },
+		{ '{', TokenCode::LFigParent }, { '}', TokenCode::RFigParent },
+		{ ';', TokenCode::DotComm },  { ',', TokenCode::Comm }
+	};
+	TokenClass classOf(TokenCode code) {
+		int n = static_cast<int>(code);
+		if (n >= 1 && n <= 8)  return TokenClass::Keyword;
+		if (n == 9)             return TokenClass::Identificator;
+		if (n >= 10 && n <= 12) return TokenClass::Const;
+		if (n >= 13 && n <= 29) return TokenClass::OpSign;
+		if (n >= 30 && n <= 35) return TokenClass::Separator;
+		if (n == 36)            return TokenClass::Mistake;
+		return TokenClass::Service;
+	}
+}
 
 string codeName(TokenCode code) {
 	switch (code) {
@@ -70,6 +104,7 @@ string codeName(TokenCode code) {
 	return "?";
 }
 
+//Можно ли связать классы с кодом - можно
 string className(TokenClass cls) {
 	switch (cls)
 	{
@@ -87,6 +122,8 @@ string className(TokenClass cls) {
 Lexer::Lexer(const string& source) : text(source) {
 
 }
+
+
 
 bool Lexer::atEnd() const {
 	//pos дошел ли до text.size()
@@ -145,7 +182,7 @@ bool Lexer::isDigit(char c) {
 bool Lexer::isSpace(char c) {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
-
+//Что за Код,строка - номер с таблиц(в стуктуре), позиция, значение - порядковый номер(значение для конст)
 Token Lexer::nextToken() {
 	skipSpace();
 
@@ -154,7 +191,7 @@ Token Lexer::nextToken() {
 
 	if (atEnd()) {
 		// вернуть лексему makeToken
-		return makeToken(TokenClass::Service, TokenCode::EndOfFile, "", startLine, startCol);
+		return makeToken(TokenCode::EndOfFile, "", startLine, startCol);
 	}
 
 	char c = peek();
@@ -169,18 +206,13 @@ Token Lexer::nextToken() {
 
 		if (t == keywords.end()) {
 			//Если в словаре нет, то обычный идентификатор
-			return makeToken(TokenClass::Identificator, TokenCode::Identfier, word, startLine, startCol);
+			return makeToken(TokenCode::Identfier, word, startLine, startCol);
 		}
 
 		TokenCode code = t->second;
 
-		if (code == TokenCode::BoolTrue) {
-			return makeToken(TokenClass::Const, code, word, startLine, startCol, 1);
-		}
-		if (code == TokenCode::BoolFalse) {
-			return makeToken(TokenClass::Const, code, word, startLine, startCol, 0);
-		}
-		return makeToken(TokenClass::Keyword, code, word, startLine, startCol);
+		return makeToken(code, word, startLine, startCol, code == TokenCode::BoolTrue ? 1 : 0);
+
 	}
 	if (isDigit(c)) {
 		// константа — следующим заходом
@@ -189,78 +221,30 @@ Token Lexer::nextToken() {
 			word += advance();
 
 		}
-		return makeToken(TokenClass::Const, TokenCode::IntConst, word, startLine, startCol, stoi(word));
+		return makeToken(TokenCode::IntConst, word, startLine, startCol, stoi(word));
 	}
 
 	//TODO: дописать знаки
 	advance();   // первый символ забрали; какой он — уже знаем, это c
 
-	switch (c) {
-		//одиночные знаки
-	case '+': return makeToken(TokenClass::OpSign, TokenCode::OpPlus, "+", startLine, startCol);
-	case '(': return makeToken(TokenClass::Separator, TokenCode::LParent, "(", startLine, startCol);
-		//остальные: - * % ) { } ; ,
-	case '-': return makeToken(TokenClass::OpSign, TokenCode::OpMinus, "-", startLine, startCol);
-	case '*': return makeToken(TokenClass::OpSign, TokenCode::OpMult, "*", startLine, startCol);
-	case '%': return makeToken(TokenClass::OpSign, TokenCode::OpDivPerc, "%", startLine, startCol);
-	case ')': return makeToken(TokenClass::Separator, TokenCode::RParent, ")", startLine, startCol);
-	case '{': return makeToken(TokenClass::Separator, TokenCode::LFigParent, "{", startLine, startCol);
-	case '}': return makeToken(TokenClass::Separator, TokenCode::RFigParent, "}", startLine, startCol);
-	case ';': return makeToken(TokenClass::Separator, TokenCode::DotComm, ";", startLine, startCol);
-	case ',': return makeToken(TokenClass::Separator, TokenCode::Comm, ",", startLine, startCol);
-
-		//знаки с уточнением
-	case '<':
-		if (peek() == '<') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMoveLeft, "<<", startLine, startCol); }
-		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, "<=", startLine, startCol); }
-		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, "<", startLine, startCol);
-
-	case '&':
-		if (peek() == '&') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpLogAnd, "&&", startLine, startCol); }
-		return makeToken(TokenClass::Mistake, TokenCode::Error, "&", startLine, startCol);
-
-		// остальные: > = ! | /
-	case '>':
-		if (peek() == '>') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMoveLeft, ">>", startLine, startCol); }
-		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, ">=", startLine, startCol); }
-		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, ">", startLine, startCol);
-	case '=':
-		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, "==", startLine, startCol); }
-		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, "=", startLine, startCol);
-	case '!':
-		if (peek() == '=') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpMenAssi, "!=", startLine, startCol); }
-		return makeToken(TokenClass::OpSign, TokenCode::OpMenee, "!", startLine, startCol);
-	case '|':
-		if (peek() == '|') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpLogAnd, "||", startLine, startCol); }
-		return makeToken(TokenClass::Mistake, TokenCode::Error, "|", startLine, startCol);
-	case '/':
-		if (peek() == '/') { advance(); return makeToken(TokenClass::OpSign, TokenCode::OpLogAnd, "//", startLine, startCol); }
-		return makeToken(TokenClass::OpSign, TokenCode::OpDiv, "/", startLine, startCol);
+	for (const Pair& p : pairs) {
+		if (c == p.first && peek() == p.second) {
+			advance();
+			return makeToken(p.code, string{ c,p.second }, startLine, startCol);
+		}
 	}
 
-	// сюда попали — символ не подошёл ни под один case
-	return makeToken(TokenClass::Mistake, TokenCode::Error, string(1, c), startLine, startCol);
+	auto s = singles.find(c);
+	if (s != singles.end()) {
+		return makeToken(s->second, string(1, c), startLine, startCol);
+	}
+	return makeToken(TokenCode::Error, string(1, c), startLine, startCol);
 }
 
-Token Lexer::makeToken(TokenClass cls, TokenCode code, const string& text,
+Token Lexer::makeToken(TokenCode code, const string& text,
 	int line, int colStart, int value) {
-	Token t;
-	t.cls = cls;
-	t.code = code;
-	t.text = text;
-	t.line = line;
-	t.colStart = colStart;
-	int len = static_cast<int>(text.size());
-
-	if (len == 0) {
-		t.colEnd = colStart;
-	}
-	else {
-		t.colEnd = colStart + len - 1;
-	};
-
-	t.value = value;
-	return t;
+	int colEnd = colStart + max(static_cast<int>(text.size()), 1) - 1;
+	return { classOf(code) , code , text, line,colStart, colEnd, value };
 }
 
 int Lexer::line() const { return ln; }
