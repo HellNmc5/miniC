@@ -48,9 +48,15 @@
     <ClCompile Include="third_party\ImGuiColorTextEdit\TextEditor.cpp">
       <Filter>third_party</Filter>
     </ClCompile>
+    <ClCompile Include="gui_platform.cpp">
+      <Filter>Исходные файлы</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Lexer.h">
+      <Filter>Файлы заголовков</Filter>
+    </ClInclude>
+    <ClInclude Include="gui.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
   </ItemGroup>

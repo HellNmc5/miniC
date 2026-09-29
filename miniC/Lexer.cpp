@@ -123,8 +123,6 @@ Lexer::Lexer(const string& source) : text(source) {
 
 }
 
-
-
 bool Lexer::atEnd() const {
 	//pos дошел ли до text.size()
 	return pos >= text.size();
@@ -182,6 +180,7 @@ bool Lexer::isDigit(char c) {
 bool Lexer::isSpace(char c) {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
+
 //Что за Код,строка - номер с таблиц(в стуктуре), позиция, значение - порядковый номер(значение для конст)
 Token Lexer::nextToken() {
 	skipSpace();
@@ -195,7 +194,7 @@ Token Lexer::nextToken() {
 	}
 
 	char c = peek();
-
+	//Формирование идентификатора/ключевого слова
 	if (isLetter(c)) {
 		//идентификатор/ключСлово
 		string word;
@@ -214,17 +213,30 @@ Token Lexer::nextToken() {
 		return makeToken(code, word, startLine, startCol, code == TokenCode::BoolTrue ? 1 : 0);
 
 	}
+	//Доработка собирания константы/идентификатора через два if, где 1 проверяет условие, при котором собирается
+	//полный идетификатор состоящий из букв и цифр, а если нет, то возращаем обычную константу.
+	//Также добавлена проверка на вместимость INT числа 65535
 	if (isDigit(c)) {
-		// константа — следующим заходом
 		string word;
 		while (isDigit(peek())) {
 			word += advance();
+		}
 
+		if (isLetter(peek())) {
+			while (isLetter(peek()) || isDigit(peek())) {
+				word += advance();
+			}
+			return makeToken(TokenCode::IntConst, word, startLine, startCol, stoi(word));
+		}
+		int value = 0;
+		for (char d : word) {
+			value = value * 10 + (d - '0');
+			if (value > 65535)
+				return makeError(word, "константа вне диапазона 0...65535", startLine, startCol);
 		}
 		return makeToken(TokenCode::IntConst, word, startLine, startCol, stoi(word));
 	}
 
-	//TODO: дописать знаки
 	advance();   // первый символ забрали; какой он — уже знаем, это c
 
 	for (const Pair& p : pairs) {
@@ -238,13 +250,27 @@ Token Lexer::nextToken() {
 	if (s != singles.end()) {
 		return makeToken(s->second, string(1, c), startLine, startCol);
 	}
-	return makeToken(TokenCode::Error, string(1, c), startLine, startCol);
+
+	for (const Pair& p : pairs){
+		if (c == p.first) {
+			return makeError(string(1, c), "Ожидалось получить : " + string{ p.first,p.second }, startLine, startCol);
+		}
+	}
+	return makeError(string(1, c), "недопустимый символ", startLine, startCol);
 }
 
+//Создаем Token и возвращаем собранную структуру
 Token Lexer::makeToken(TokenCode code, const string& text,
 	int line, int colStart, int value) {
 	int colEnd = colStart + max(static_cast<int>(text.size()), 1) - 1;
-	return { classOf(code) , code , text, line,colStart, colEnd, value };
+	return { classOf(code) , code , text, line, colStart, colEnd, value, ""};
+}
+
+//То же самое что и Токен
+Token Lexer::makeError(const string& text, const string& message, int line, int colStart) {
+	Token t = makeToken(TokenCode::Error, text, line, colStart);
+	t.message = message;
+	return t;
 }
 
 int Lexer::line() const { return ln; }

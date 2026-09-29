@@ -69,6 +69,7 @@ struct Token {
 	int colStart;
 	int colEnd;
 	int value; //Номер идентификатора
+	std::string message;
 };
 
 std::string codeName(TokenCode code);
@@ -79,13 +80,6 @@ class Lexer {
 public:
 	explicit Lexer(const std::string& source);//Конструктор - не ЛЕГО!
 
-	bool atEnd() const;//Чек - дошли ли до конца?
-	char peek(int ahead = 0) const;//Смотрим символ не двигаясь
-	char advance();//воруем символ и двигаем дальше
-
-	int line() const;
-	int col() const;
-
 	Token nextToken();
 
 	void skipSpace();//Скип комментариев и пробела
@@ -95,14 +89,20 @@ private:
 	int ln = 1;//номер строки
 	int cl = 1;//номер колонки
 
-	
+	bool atEnd() const;//Чек - дошли ли до конца?
+	char peek(int ahead = 0) const;//Смотрим символ не двигаясь
+	char advance();//воруем символ и двигаем дальше
+
+	int line() const;
+	int col() const;
 	
 	//P.S. Для себя static, ибо не нать поля объекта
 	//Заодно пересоздаем isalpha и тп, возможно мусор, но да ладно, а вообще из за русских комментариев
 	static bool isLetter(char c);
 	static bool isDigit(char c);
-	static bool isSpace(char c);//' ', '\t', '\n'
+	static bool isSpace(char c);//' ', '\t', '\n', '\r'
 
 	static Token makeToken(TokenCode code, const std::string& text,
 		int line, int colStart, int value = 0);
+	static Token makeError(const std::string& text, const std::string& message, int line, int colStart);
 };

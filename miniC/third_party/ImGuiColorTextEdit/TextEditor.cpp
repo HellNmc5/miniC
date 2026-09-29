@@ -1,4 +1,4 @@
-#include <algorithm>
+﻿#include <algorithm>
 #include <chrono>
 #include <string>
 #include <regex>
@@ -943,13 +943,11 @@ void TextEditor::Render()
 				if (ImGui::IsMouseHoveringRect(lineStartScreenPos, end))
 				{
 					ImGui::BeginTooltip();
-					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-					ImGui::Text("Error at line %d:", errorIt->first);
+					ImGui::PushStyleColor(ImGuiCol_Text, mPalette[(int)PaletteIndex::String]);   // miniC: цвет ошибок из темы
+					ImGui::Text("Ошибка в строке %d:", errorIt->first);
 					ImGui::PopStyleColor();
 					ImGui::Separator();
-					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.2f, 1.0f));
 					ImGui::Text("%s", errorIt->second.c_str());
-					ImGui::PopStyleColor();
 					ImGui::EndTooltip();
 				}
 			}
