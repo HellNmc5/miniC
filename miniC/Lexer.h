@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <string>
+#include "IdTable.h"
 
 enum class TokenClass {
 	Keyword,
@@ -76,11 +77,14 @@ std::string codeName(TokenCode code);
 
 std::string className(TokenClass cls);
 
+//TODO: Дописать метод и поле IdTable
 class Lexer {
 public:
 	explicit Lexer(const std::string& source);//Конструктор - не ЛЕГО!
 
 	Token nextToken();
+
+	const IdTable& identifiers() const { return ids; }
 
 	void skipSpace();//Скип комментариев и пробела
 private:
@@ -88,6 +92,7 @@ private:
 	size_t pos = 0;//индекс текущего символа
 	int ln = 1;//номер строки
 	int cl = 1;//номер колонки
+	IdTable ids;
 
 	bool atEnd() const;//Чек - дошли ли до конца?
 	char peek(int ahead = 0) const;//Смотрим символ не двигаясь

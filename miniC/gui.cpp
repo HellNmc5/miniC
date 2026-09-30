@@ -108,6 +108,7 @@ struct App {
     std::string problem;       // лексер завис или упал
     std::vector<std::string> lines;
     float split = 0.42f;       // доля ширины под редактор
+    std::string idStats;
 };
 
 App g;
@@ -298,8 +299,8 @@ void analyze() {
     // 1. Прогон лексера с защитой от зависания и исключений
     std::vector<Token> tokens;
     g.problem.clear();
+    Lexer lexer(source);
     try {
-        Lexer lexer(source);
         for (Token t = lexer.nextToken(); t.code != TokenCode::EndOfFile; t = lexer.nextToken()) {
             if (!tokens.empty() && tokens.back().line == t.line && tokens.back().colStart == t.colStart) {
                 g.problem = "Лексер не продвигается: nextToken дважды вернул лексему с позиции " +
@@ -317,10 +318,8 @@ void analyze() {
     for (int& s : g.selected) s = -1;
     TextEditor::ErrorMarkers markers;
 
-    // Таблицу идентификаторов пока собирает интерфейс. По заданию её строит
-    // лексер методом цепочек — тогда номер берётся из t.value, а этот блок уходит.
-    std::unordered_map<std::string, int> idIndex;   // имя -> номер с 1
-    std::vector<int> idCount;
+    
+    
     g.errorCount = 0;
 
     for (size_t n = 0; n < tokens.size(); ++n) {
@@ -329,22 +328,16 @@ void analyze() {
         const std::string msg = t.message.empty() ? codeName(t.code) : t.message;
 
         std::string value;
+
         if (t.cls == TokenClass::Identificator) {
-            auto it = idIndex.find(t.text);
-            if (it == idIndex.end()) {
-                it = idIndex.emplace(t.text, (int)idIndex.size() + 1).first;
-                idCount.push_back(0);
-                g.rows[TAB_IDS].push_back({ { std::to_string(it->second), t.text,
-                    "стр " + std::to_string(t.line) + ", поз " + std::to_string(t.colStart), "" },
-                    t.cls, false, t.line, t.colStart, (int)t.text.size() });
-            }
-            ++idCount[it->second - 1];
-            value = "№ " + std::to_string(it->second);
-        } else if (t.cls == TokenClass::Const) {
+            value = "№ " + std::to_string(t.value);
+        }
+        else if (t.cls == TokenClass::Const) {
             value = std::to_string(t.value);
         }
 
         const int len = (int)std::max<size_t>(1, t.text.size());
+
         g.rows[TAB_TOKENS].push_back({ { std::to_string(n + 1), displayLexeme(t.text), className(t.cls), msg,
             std::to_string((int)t.code), std::to_string(t.line), positionText(t), value },
             t.cls, isError, t.line, t.colStart, len });
@@ -358,8 +351,15 @@ void analyze() {
         }
     }
 
-    for (size_t i = 0; i < idCount.size(); ++i)
-        g.rows[TAB_IDS][i].cells[3] = std::to_string(idCount[i]);
+    const auto& ids = lexer.identifiers().entries();
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const IdEntry& e = ids[i];
+        g.rows[TAB_IDS].push_back({ { std::to_string(i + 1), e.name,
+            "стр " + std::to_string(e.line) + ", поз " + std::to_string(e.col), std::to_string(e.count) },
+            TokenClass::Identificator, false, e.line, e.col, (int)e.name.size() });
+    }
+    g.idStats = "коллизий: " + std::to_string(lexer.identifiers().collisions()) +
+                ", сравнений: " + std::to_string(lexer.identifiers().comparisons());
     g.tokenCount = (int)tokens.size();
     g.editor.SetErrorMarkers(markers);
 }
@@ -586,6 +586,7 @@ void drawResults(float width, float height) {
         }
         title = "Идентификаторы  " + std::to_string(g.rows[TAB_IDS].size()) + "###ids";
         if (ImGui::BeginTabItem(title.c_str())) {
+            textColored(MUTED, g.idStats.c_str());
             drawTable("##ids", TAB_IDS, { { "№", 0 }, { "Имя", 1.5f }, { "Первое вхождение", 1.5f }, { "Вхождений", 0 } });
             ImGui::EndTabItem();
         }

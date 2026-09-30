@@ -205,7 +205,7 @@ Token Lexer::nextToken() {
 
 		if (t == keywords.end()) {
 			//Если в словаре нет, то обычный идентификатор
-			return makeToken(TokenCode::Identfier, word, startLine, startCol);
+			return makeToken(TokenCode::Identfier, word, startLine, startCol,ids.addOrFind(word,startLine,startCol));
 		}
 
 		TokenCode code = t->second;
@@ -250,7 +250,7 @@ Token Lexer::nextToken() {
 	if (s != singles.end()) {
 		return makeToken(s->second, string(1, c), startLine, startCol);
 	}
-
+	//Формирование ошибки
 	for (const Pair& p : pairs){
 		if (c == p.first) {
 			return makeError(string(1, c), "Ожидалось получить : " + string{ p.first,p.second }, startLine, startCol);
