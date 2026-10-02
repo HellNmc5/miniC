@@ -1,0 +1,150 @@
+﻿#include "Parser.h"
+#include <vector>
+
+using namespace std;
+
+namespace {
+	const vector<vector<TokenCode>> levels = {
+		{ TokenCode::OpLogOr },                                   // ||
+		{ TokenCode::OpLogAnd },                                  // &&
+		{ TokenCode::OpEq, TokenCode::OpNotAssign },              // == !=
+		{ TokenCode::OpMenee, TokenCode::OpBolee,
+		  TokenCode::OpMenAssi, TokenCode::OpBolAssi },           // < > <= >=
+		{ TokenCode::OpMoveLeft, TokenCode::OpMoveRight },        // << >>
+		{ TokenCode::OpPlus, TokenCode::OpMinus },                // + -
+		{ TokenCode::OpMult, TokenCode::OpDiv, TokenCode::OpDivPerc },  // * / %
+	};
+}
+
+Parser::Parser(const string& source) : lexer(source) {
+	advance();   // сразу читаем первую лексему
+}
+
+// Перейти к следующей лексеме. Лексемы-ошибки пропускаются
+void Parser::advance() {
+	cur = lexer.nextToken();
+	while (cur.code == TokenCode::Error) {
+		cur = lexer.nextToken();
+	}
+}
+
+// Текущая лексема такого вида?
+//check(TokenCode::DotComm) — стоит ли сейчас «;»
+bool Parser::check(TokenCode code) const {
+	return cur.code == code;
+}
+
+bool Parser::match(TokenCode code) {
+	if (check(code)) {
+		advance();
+		return true;
+	}
+	return false;
+}
+
+Token Parser::expect(TokenCode code, const string& what) {
+	if (check(code)) {
+		Token t = cur;
+		advance();
+		return t;
+	}
+	error("Ожидалось " + what);
+}
+
+void Parser::error(const string& message) {
+	string got = cur.code == TokenCode::EndOfFile ? "конец файла" : "«" + cur.text + "»";
+	throw SyntaxError{ message + ", а встретилось " + got, cur.line, cur.colStart };
+}
+
+// Текущая лексема — одна из перечисленных?
+bool Parser::checkAny(const vector<TokenCode>& codes) const {
+	for (TokenCode c : codes)
+		if (check(c)) return true;
+	return false;
+}
+
+NodePtr Parser::makeBinary(const Token& op, NodePtr left, NodePtr right) {
+	NodePtr n = makeNode(NodeKind::Binary, op);
+	// Собрать узел двухместной операции: op с детьми left и right.
+	// Для 2 + 3: узел «+», children[0] = 2, children[1] = 3. Порядок важен — для «-» это a - b, а не b - a.
+	n->children.push_back(move(left));
+	n->children.push_back(move(right));
+	return n;
+}
+//Парсер выражения
+NodePtr Parser::parseExpression() {
+	return parseBinary(0);
+}
+
+// Один этаж двухместных операций из таблицы levels.
+// <этаж> ::= <этаж ниже> { операция_этажа <этаж ниже> }
+NodePtr Parser::parseBinary(size_t level) {
+	if (level == levels.size()) {                          // этажи кончились —
+		return parseUnary();                               //   дальше только операнд
+	}
+	NodePtr left = parseBinary(level + 1);                 // левый операнд — с этажа сильнее
+	while (checkAny(levels[level])) {                      // пока стоит операция этого этажа
+		Token op = cur;                                    //   запомнили знак
+		advance();                                         //   забрали его
+		NodePtr right = parseBinary(level + 1);            //   правый операнд — тоже с этажа сильнее
+		left = makeBinary(op, move(left), move(right));    //   всё собранное — левая часть следующей операции
+	}
+	return left;
+}
+
+// <унарное> ::= ( "-" | "!" ) <унарное> | <первичное>
+NodePtr Parser::parseUnary() {
+	if (checkAny({ TokenCode::OpMinus, TokenCode::OpLogNot })) {   // перед операндом стоит - или !
+		Token op = cur;                                    // запомнили знак
+		advance();                                         // забрали его
+		NodePtr n = makeNode(NodeKind::Unary, op);         // узел операции
+		n->children.push_back(parseUnary());               // после знака снова операнд (так работают !!a, --x)
+		return n;
+	}
+	return parsePrimary();                                 // знака нет — сразу операнд
+}
+
+// <первичное> ::= константа | true | false
+//               | идентификатор [ "(" [ <аргументы> ] ")" ]
+//               | "(" <выражение> ")"
+NodePtr Parser::parsePrimary() {
+	// 1. константа: 5, true, false
+	if (checkAny({ TokenCode::IntConst, TokenCode::BoolTrue, TokenCode::BoolFalse })) {
+		Token t = cur;
+		advance();
+		return makeNode(NodeKind::Const, t);
+	}
+
+	// 2. имя: переменная или вызов функции
+	if (check(TokenCode::Identfier)) {
+		Token name = cur;                                  // запомнили имя
+		advance();
+		if (!match(TokenCode::LParent)) {                  // за именем нет «(»
+			return makeNode(NodeKind::Var, name);          //   — это переменная
+		}
+		NodePtr call = makeNode(NodeKind::Call, name);     // есть «(» — это вызов
+		if (!check(TokenCode::RParent)) {                  // сразу «)» — аргументов нет; иначе разбираем их
+			call->children.push_back(parseExpression());   //   первый аргумент
+			while (match(TokenCode::Comm)) {               //   пока есть запятая —
+				call->children.push_back(parseExpression());   // следующий аргумент
+			}
+		}
+		expect(TokenCode::RParent, "«)»");                 // скобка обязана закрыться
+		return call;
+	}
+
+	// 3. выражение в скобках: (2 + 3)
+	if (match(TokenCode::LParent)) {                       // забрали «(»
+		NodePtr inner = parseExpression();                 // разобрали содержимое с самого верхнего этажа
+		expect(TokenCode::RParent, "«)»");                 // скобка обязана закрыться
+		return inner;                                      // узла для скобок нет — только содержимое
+	}
+
+	// 4. ничего не подошло
+	error("Ожидалось выражение");
+}
+
+// Разбор всей программы: <программа> ::= <функция> { <функция> }
+NodePtr Parser::parseProgram() {
+	return nullptr;   // заглушка, напишем последним
+}
