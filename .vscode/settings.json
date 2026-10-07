@@ -6,9 +6,5 @@
     },
     "cmake.debugConfig": {
         "console": "integratedTerminal"
-    },
-    "recommendations": [
-        "ms-vscode.cpptools",
-        "ms-vscode.cmake-tools"
-    ]
+    }
 }
