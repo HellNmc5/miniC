@@ -4,5 +4,8 @@
     "cmake.environment": {
         "TEMP": "C:\\Temp",
         "TMP": "C:\\Temp"
+    },
+    "cmake.debugConfig": {
+        "console": "integratedTerminal"
     }
 }
