@@ -52,11 +52,16 @@ int main() {
 
 ## Сборка
 
-Требуется Windows и Visual Studio 2022 (набор инструментов v143).
+Требуется Windows, CMake 3.20+ и компилятор MSVC (Visual Studio 2022 или Build Tools).
 
-1. Открыть `miniC.sln`.
-2. Собрать конфигурацию `Release | x64`.
-3. Запустить `miniC.exe`.
+```
+cmake -S . -B build
+cmake --build build --config Release
+```
+
+Получатся две программы:
+- `build/Release/minic_gui.exe` — редактор с графическим интерфейсом
+- `build/Release/minic_cli.exe` — консольная версия
 
 ## План
 
