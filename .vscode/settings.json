@@ -1,11 +1,14 @@
 {
     "cmake.sourceDirectory": "F:/repossss/miniC",
-    
     "cmake.environment": {
         "TEMP": "C:\\Temp",
         "TMP": "C:\\Temp"
     },
     "cmake.debugConfig": {
         "console": "integratedTerminal"
-    }
+    },
+    "recommendations": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools"
+    ]
 }

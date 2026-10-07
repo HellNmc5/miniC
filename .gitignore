@@ -363,3 +363,7 @@ MigrationBackup/
 FodyWeavers.xsd
 
 build/
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
