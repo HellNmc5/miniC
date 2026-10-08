@@ -58,25 +58,27 @@ int main(int args, char* argv[]) {
 	//}
 	// --- проверка разбора выражений ---
 	const char* tests[] = {
-		"2 + 3 * 4",
-		"(2 + 3) * 4",
-		"a - b - c",
-		"-x * 2",
-		"!a && b || c",
-		"x << 1 <= y",
-		"f(1, a + 2) * 3",
-		"f()",
-		"g() + 1",
-		// дальше — с ошибками
-		"2 +",
-		"(2 + 3",
-		"f(1 2)"
+		"int x = 2 + 3;",
+		"word m;",
+		"x = x + 1;",
+		"f(1, 2);",
+		"if (a < b) x = 1; else x = 2;",
+		"while (i > 0) { i = i - 1; }",
+		"return n * fact(n - 1);",
+		"{ int a = 1; { a = 2; } }",
+		"if (a) if (b) x = 1; else x = 2;",   // висячий else
+		// с ошибками
+		"x = 1",
+		"int = 5;",
+		"x 5;",
+		"if a < b) x = 1;",
+		"{ x = 1;"
 	};
 	for (const char* src : tests) {
 		cout << "== " << src << "\n";
 		try {
 			Parser p(src);
-			printTree(*p.parseExpression());
+			printTree(*p.parseStatement());
 		}
 		catch (const SyntaxError& e) {
 			cout << "ошибка: " << e.message << " (поз. " << e.col << ")\n";

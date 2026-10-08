@@ -122,14 +122,8 @@ NodePtr Parser::parsePrimary() {
 		if (!match(TokenCode::LParent)) {                  // за именем нет «(»
 			return makeNode(NodeKind::Var, name);          //   — это переменная
 		}
-		NodePtr call = makeNode(NodeKind::Call, name);     // есть «(» — это вызов
-		if (!check(TokenCode::RParent)) {                  // сразу «)» — аргументов нет; иначе разбираем их
-			call->children.push_back(parseExpression());   //   первый аргумент
-			while (match(TokenCode::Comm)) {               //   пока есть запятая —
-				call->children.push_back(parseExpression());   // следующий аргумент
-			}
-		}
-		expect(TokenCode::RParent, "«)»");                 // скобка обязана закрыться
+		NodePtr call = makeNode(NodeKind::Call, name);     
+		parseArguments(*call);                        
 		return call;
 	}
 
@@ -142,6 +136,122 @@ NodePtr Parser::parsePrimary() {
 
 	// 4. ничего не подошло
 	error("Ожидалось выражение");
+}
+
+// <оператор> ::= <объявление> | <if> | <while> | <return> | <блок>
+//              | идентификатор <продолжение>
+/*
+Смотрим на первую лексему и решаем, какой оператор начинается.
+Если это имя — забираем его и смотрим на следующую лексему:
+«=» — присваивание, «(» — вызов функции, иначе ошибка.
+ */
+NodePtr Parser::parseStatement() {
+	if (checkAny({ TokenCode::kwInt, TokenCode::kwWord, TokenCode::kwBool })) return parseVarDecl();
+	if (check(TokenCode::kwIf))        return parseIf();
+	if (check(TokenCode::kwWhile))     return parseWhile();
+	if (check(TokenCode::kwReturn))    return parseReturn();
+	if (check(TokenCode::LFigParent))  return parseBlock();
+
+	if (check(TokenCode::Identfier)) {
+		Token name = cur;
+		advance();
+		// <продолжение> ::= "=" <выражение> ";"
+		if (match(TokenCode::OpAssign)) {
+			NodePtr n = makeNode(NodeKind::Assign, name);
+			n->children.push_back(parseExpression());
+			expect(TokenCode::DotComm, "«;»");
+			return n;
+		}
+		//                 | "(" [ <аргументы> ] ")" ";"
+		if (match(TokenCode::LParent)) {
+			NodePtr n = makeNode(NodeKind::Call, name);
+			parseArguments(*n);
+			expect(TokenCode::DotComm, "«;»");
+			return n;
+		}
+		error("Ожидалось «=» или «(»");
+	}
+
+	error("Ожидался оператор");
+}
+
+void Parser::parseArguments(Node& call){
+	if(!check(TokenCode::RParent)){// есть «(» — это вызов, сразу «)» — аргументов нет; иначе разбираем их
+		call.children.push_back(parseExpression());//   первый аргумент
+		while(match(TokenCode::Comm)){//   пока есть запятая —
+			call.children.push_back(parseExpression());//   след аргумент
+		}
+	}
+	expect(TokenCode::RParent, "«)»");
+}
+/* 
+<if> ::= "if" "(" <выражение> ")" <оператор> ["else" <оператор> ]
+@return Указатель на узел дерева разбора, представляющий if-оператор
+*/
+NodePtr Parser::parseIf(){
+	NodePtr n = makeNode(NodeKind::If,cur);
+	advance();
+	expect(TokenCode::LParent, "«(» после if");
+	n->children.push_back(parseExpression());
+	expect(TokenCode::RParent, "«)» после условия if");
+	n->children.push_back(parseStatement());
+	if(match(TokenCode::kwElse)){
+		n->children.push_back(parseStatement());
+	}
+	return n;
+}
+/*
+<while> ::= "while" "(" <выражение> ")" <оператор>
+@return Указатель на узел дерева разбора, представляющий while-оператор
+*/
+NodePtr Parser::parseWhile(){
+	NodePtr n = makeNode(NodeKind::While,cur);
+	advance();
+	expect(TokenCode::LParent, "«(» после while");
+	n->children.push_back(parseExpression());
+	expect(TokenCode::RParent, "«)» после условия while");
+	n->children.push_back(parseStatement());
+	return n;
+}
+/*
+<return> ::= "return" <выражение> ";"
+@return Указатель на узел дерева разбора, представляющий return-оператор
+*/
+NodePtr Parser::parseReturn(){
+	NodePtr n = makeNode(NodeKind::Return,cur);
+	advance();
+	n->children.push_back(parseExpression());
+	expect(TokenCode::DotComm, "«;» после return");
+	return n;
+}
+/*
+<block> ::= "{" <оператор> { <оператор> } "}"
+@return Указатель на узел дерева разбора, представляющий блок
+*/
+NodePtr Parser::parseBlock(){
+	NodePtr n = makeNode(NodeKind::Block,cur);
+	advance();
+	while(!check(TokenCode::RFigParent) && !check(TokenCode::EndOfFile)){
+		n->children.push_back(parseStatement());
+	}
+	expect(TokenCode::RFigParent, "«}» после блока");
+	return n;
+}
+/*
+<varDecl> ::= ("int" | "word" | "bool") идентификатор ";"
+@return Указатель на узел дерева разбора, представляющий объявление переменной
+*/
+NodePtr Parser::parseVarDecl() {
+	Token type = cur;
+	advance();
+	Token name = expect(TokenCode::Identfier, "имя переменной");
+	NodePtr n = makeNode(NodeKind::VarDecl, name);
+	n->type = type.code;
+	if (match(TokenCode::OpAssign)) {                  // [ "=" <выражение> ]
+		n->children.push_back(parseExpression());
+	}
+	expect(TokenCode::DotComm, "«;»");
+	return n;
 }
 
 // Разбор всей программы: <программа> ::= <функция> { <функция> }

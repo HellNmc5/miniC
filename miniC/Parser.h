@@ -16,6 +16,7 @@ public:
 	NodePtr parseProgram(); //Разбор программы целиком, если возникает ошибка бросаем исключение SyntaxError
 	
 	NodePtr parseExpression();
+	NodePtr parseStatement();
 private:
 	Lexer lexer;
 	Token cur;//Текущая лексема
@@ -32,7 +33,13 @@ private:
 	NodePtr parseBinary(size_t level);
 	NodePtr parseUnary();
 	NodePtr parsePrimary();
-
+	
+	NodePtr parseVarDecl();
+	NodePtr parseIf();
+	NodePtr parseWhile();
+	NodePtr parseReturn();
+	NodePtr parseBlock();
+	void parseArguments(Node& call);
 	// [[noreturn]] — управление не возвращается в место вызова: функция всегда бросает исключение.
 	// Без этой пометки компилятор предупреждает «не все пути возвращают значение»
 	// в методах, которые заканчиваются вызовом error (например, expect).
