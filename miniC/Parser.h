@@ -15,8 +15,7 @@ public:
 	explicit Parser(const std::string& source);
 	NodePtr parseProgram(); //Разбор программы целиком, если возникает ошибка бросаем исключение SyntaxError
 	
-	NodePtr parseExpression();
-	NodePtr parseStatement();
+	
 private:
 	Lexer lexer;
 	Token cur;//Текущая лексема
@@ -40,6 +39,14 @@ private:
 	NodePtr parseReturn();
 	NodePtr parseBlock();
 	void parseArguments(Node& call);
+
+	TokenCode expectType(const std::string& what);
+
+	NodePtr parseExpression();
+	NodePtr parseStatement();
+	
+	NodePtr parseFunction();
+	NodePtr parseParam();
 	// [[noreturn]] — управление не возвращается в место вызова: функция всегда бросает исключение.
 	// Без этой пометки компилятор предупреждает «не все пути возвращают значение»
 	// в методах, которые заканчиваются вызовом error (например, expect).

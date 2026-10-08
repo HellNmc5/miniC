@@ -9,8 +9,10 @@ enum class NodeKind {//перечисления видов узлов(TokenCode 
 	VarDecl, Assign, Call , If, While, Return, //Операторы
 	Binary, Unary, Const, Var // Выражения
 };
-
-struct Node//Узел дерева разрбора 
+/*
+Узел дерева разбора
+*/
+struct Node
 {
 	NodeKind kind;//Тип узла: функция, условия, операция
 

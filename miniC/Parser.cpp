@@ -238,23 +238,74 @@ NodePtr Parser::parseBlock(){
 	return n;
 }
 /*
-<varDecl> ::= ("int" | "word" | "bool") идентификатор ";"
+<объявление> ::= <тип> идентификатор ";"
 @return Указатель на узел дерева разбора, представляющий объявление переменной
 */
 NodePtr Parser::parseVarDecl() {
-	Token type = cur;
-	advance();
-	Token name = expect(TokenCode::Identfier, "имя переменной");
+	TokenCode type = expectType("типа переменной");
+	Token name = expect(TokenCode::Identfier, "имени переменной");
 	NodePtr n = makeNode(NodeKind::VarDecl, name);
-	n->type = type.code;
-	if (match(TokenCode::OpAssign)) {                  // [ "=" <выражение> ]
+	n->type = type;
+	if(match(TokenCode::OpAssign)) {
 		n->children.push_back(parseExpression());
 	}
-	expect(TokenCode::DotComm, "«;»");
+	expect(TokenCode::DotComm, "«;» после объявления переменной");
 	return n;
 }
+/*
+<type> ::= "int" | "word" | "bool"
+@return Код типа переменной
+*/
+TokenCode Parser::expectType(const std::string& what) {
+	if (checkAny({ TokenCode::kwInt, TokenCode::kwWord, TokenCode::kwBool })) {
+		TokenCode type = cur.code;
+		advance();
+		return type;
+	}
+	error("Ожидался тип " + what);
+}
+/*
+<function> ::= <тип> идентификатор "(" { <тип> идентификатор { "," <тип> идентификатор } } ")" <блок>
+@return Указатель на узел дерева разбора, представляющий функцию
+*/
+NodePtr Parser::parseFunction() {
+	TokenCode type = expectType("типа функции");
 
+	if(!checkAny({ TokenCode::Identfier, TokenCode::kwMain })){
+		error("Ожидалось имя функции");
+	}
+	NodePtr n = makeNode(NodeKind::Function, cur);
+	n->type = type;
+	advance();
+
+	expect(TokenCode::LParent, "«(» после имени функции");
+	if (!check(TokenCode::RParent)) {
+		n->children.push_back(parseParam());
+		while (match(TokenCode::Comm)) {
+			n->children.push_back(parseParam());
+		}
+	}
+	expect(TokenCode::RParent, "«)» после списка параметров");
+
+	n->children.push_back(parseBlock());
+	return n;
+}
+/*
+<param> ::= <тип> идентификатор
+@return Указатель на узел дерева разбора, представляющий параметр функции
+*/
+NodePtr Parser::parseParam() {
+	TokenCode type = expectType("типа параметра");
+	Token name = expect(TokenCode::Identfier, "имени параметра");
+	NodePtr n = makeNode(NodeKind::Param, name);
+	n->type = type;
+	return n;
+}
 // Разбор всей программы: <программа> ::= <функция> { <функция> }
 NodePtr Parser::parseProgram() {
-	return nullptr;   // заглушка, напишем последним
+	NodePtr programNode = makeNode(NodeKind::Program, Token{});
+	while (!check(TokenCode::EndOfFile)) {
+		programNode->children.push_back(parseFunction());
+	}
+	return programNode;
 }
