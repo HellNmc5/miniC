@@ -30,6 +30,7 @@
 #include "TextEditor.h"
 #include "gui.h"
 #include "Lexer.h"
+#include "Parser.h"
 
 #ifdef _MSC_VER
 #pragma comment(lib, "comdlg32.lib")
@@ -106,6 +107,11 @@ struct App {
     int selected[TAB_COUNT] = { -1, -1, -1 };
     int tokenCount = 0, errorCount = 0;
     std::string problem;       // лексер завис или упал
+
+    NodePtr tree;                        // дерево разбора последнего анализа
+    std::string syntaxError;             // синтаксическая ошибка, если была
+    const Node* selectedNode = nullptr;  // узел, выделенный во вкладке «Дерево»
+
     std::vector<std::string> lines;
     float split = 0.42f;       // доля ширины под редактор
     std::string idStats;
@@ -360,6 +366,24 @@ void analyze() {
     }
     g.idStats = "коллизий: " + std::to_string(lexer.identifiers().collisions()) +
                 ", сравнений: " + std::to_string(lexer.identifiers().comparisons());
+    // 3. Синтаксический анализ того же текста
+    g.tree.reset();
+    g.syntaxError.clear();
+    g.selectedNode = nullptr;            // старое дерево удалено — указатель на его узел больше недействителен
+    try {
+        Parser parser(source);
+        g.tree = parser.parseProgram();
+    } catch (const SyntaxError& e) {
+        g.syntaxError = e.message;
+        ++g.errorCount;
+        g.rows[TAB_ERRORS].push_back({ { std::to_string(g.errorCount), std::to_string(e.line),
+            std::to_string(e.col), "", "синтаксис: " + e.message },
+            TokenClass::Mistake, true, e.line, e.col, 1 });
+        std::string& m = markers[e.line];
+        m += (m.empty() ? "" : "\n") + e.message;
+    } catch (const std::exception& e) {
+        g.syntaxError = std::string("Парсер завершился с исключением: ") + e.what();
+    }
     g.tokenCount = (int)tokens.size();
     g.editor.SetErrorMarkers(markers);
 }
@@ -575,6 +599,74 @@ void drawTable(const char* id, Tab tab, std::initializer_list<std::pair<const ch
     ImGui::EndTable();
 }
 
+// ========================================================== дерево разбора
+
+// Цвета узлов — те же, что у классов лексем: операторы языка синие,
+// операции фиолетовые, константы зелёные, остальное — обычным текстом
+ImU32 nodeColor(NodeKind k) {
+    switch (k) {
+    case NodeKind::Program: case NodeKind::Function: case NodeKind::Param:
+    case NodeKind::Block:   case NodeKind::Var:
+        return TEXT;
+    case NodeKind::Binary:  case NodeKind::Unary:
+        return OPERATOR;
+    case NodeKind::Const:
+        return CONSTANT;
+    default:                                        // объявление, присваивание, вызов, if, while, return
+        return KEYWORD;
+    }
+}
+
+// Подпись узла — как в консольном printTree
+std::string nodeLabel(const Node& n) {
+    std::string s = nodeName(n.kind);
+    if (!n.token.text.empty()) s += "  " + n.token.text;
+    if (n.type != TokenCode{}) s += "  : " + codeName(n.type);
+    return s;
+}
+
+// Один узел и, рекурсивно, его дети
+void drawNode(const Node& n) {
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow |
+                               ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (n.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    if (&n == g.selectedNode) flags |= ImGuiTreeNodeFlags_Selected;
+
+    ImGui::PushStyleColor(ImGuiCol_Text, nodeColor(n.kind));
+    const bool open = ImGui::TreeNodeEx("node", flags, "%s", nodeLabel(n).c_str());
+    ImGui::PopStyleColor();
+
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {   // щелчок по подписи, а не по стрелке
+        g.selectedNode = &n;
+        Row r;
+        r.line = n.token.line;
+        r.col = n.token.colStart;
+        r.len = (int)std::max<size_t>(1, n.token.text.size());
+        selectInEditor(r);
+    }
+
+    if (open && !n.children.empty()) {
+        for (size_t i = 0; i < n.children.size(); ++i) {
+            ImGui::PushID((int)i);          // номер ребёнка — часть идентификатора узла
+            drawNode(*n.children[i]);
+            ImGui::PopID();
+        }
+        ImGui::TreePop();
+    }
+}
+
+void drawTreeTab() {
+    if (!g.syntaxError.empty()) {
+        textColored(ERROR_FG, g.syntaxError.c_str());
+        textColored(MUTED, "Дерево появится, когда ошибка будет исправлена.");
+        return;
+    }
+    if (!g.tree) return;
+    ImGui::BeginChild("##treeView", ImVec2(0, 0));   // своя прокрутка для длинного дерева
+    drawNode(*g.tree);
+    ImGui::EndChild();
+}
+
 void drawResults(float width, float height) {
     ImGui::BeginChild("##results", ImVec2(width, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
     if (ImGui::BeginTabBar("##tabs")) {
@@ -588,6 +680,13 @@ void drawResults(float width, float height) {
         if (ImGui::BeginTabItem(title.c_str())) {
             textColored(MUTED, g.idStats.c_str());
             drawTable("##ids", TAB_IDS, { { "№", 0 }, { "Имя", 1.5f }, { "Первое вхождение", 1.5f }, { "Вхождений", 0 } });
+            ImGui::EndTabItem();
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, g.syntaxError.empty() ? TEXT : ERROR_FG);
+        const bool treeOpen = ImGui::BeginTabItem("Дерево###tree");
+        ImGui::PopStyleColor();
+        if (treeOpen) {
+            drawTreeTab();
             ImGui::EndTabItem();
         }
         const bool hasErrors = !g.rows[TAB_ERRORS].empty();
