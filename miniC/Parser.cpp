@@ -4,6 +4,10 @@
 using namespace std;
 
 namespace {
+	/*
+	 * Таблица приоритетов операций.
+	 * Каждый уровень содержит операции одного приоритета.
+	 */
 	const vector<vector<TokenCode>> levels = {
 		{ TokenCode::OpLogOr },                                   // ||
 		{ TokenCode::OpLogAnd },                                  // &&
@@ -33,7 +37,8 @@ void Parser::advance() {
 bool Parser::check(TokenCode code) const {
 	return cur.code == code;
 }
-
+// Забрать текущую лексему, если она такого вида
+// match(TokenCode::DotComm) — если сейчас «;», то забираем её
 bool Parser::match(TokenCode code) {
 	if (check(code)) {
 		advance();
@@ -41,7 +46,7 @@ bool Parser::match(TokenCode code) {
 	}
 	return false;
 }
-
+// Забрать текущую лексему, если она такого вида, иначе бросить ошибку
 Token Parser::expect(TokenCode code, const string& what) {
 	if (check(code)) {
 		Token t = cur;
@@ -50,19 +55,22 @@ Token Parser::expect(TokenCode code, const string& what) {
 	}
 	error("Ожидалось " + what);
 }
-
+// Забрать текущую лексему, если она типа kwInt, kwWord или kwBool, иначе бросить ошибку
 void Parser::error(const string& message) {
 	string got = cur.code == TokenCode::EndOfFile ? "конец файла" : "«" + cur.text + "»";
 	throw SyntaxError{ message + ", а встретилось " + got, cur.line, cur.colStart };
 }
-
-// Текущая лексема — одна из перечисленных?
+/*
+ * Проверить, является ли текущая лексема одной из перечисленных.
+ */
 bool Parser::checkAny(const vector<TokenCode>& codes) const {
 	for (TokenCode c : codes)
 		if (check(c)) return true;
 	return false;
 }
-
+/*
+ * Создать узел двухместной операции.
+ */
 NodePtr Parser::makeBinary(const Token& op, NodePtr left, NodePtr right) {
 	NodePtr n = makeNode(NodeKind::Binary, op);
 	// Собрать узел двухместной операции: op с детьми left и right.
@@ -71,7 +79,9 @@ NodePtr Parser::makeBinary(const Token& op, NodePtr left, NodePtr right) {
 	n->children.push_back(move(right));
 	return n;
 }
-//Парсер выражения
+/*
+ * Разобрать выражение.
+ */
 NodePtr Parser::parseExpression() {
 	return parseBinary(0);
 }
@@ -174,7 +184,9 @@ NodePtr Parser::parseStatement() {
 
 	error("Ожидался оператор");
 }
-
+/*
+ * Разобрать аргументы вызова функции.
+ */
 void Parser::parseArguments(Node& call){
 	if(!check(TokenCode::RParent)){// есть «(» — это вызов, сразу «)» — аргументов нет; иначе разбираем их
 		call.children.push_back(parseExpression());//   первый аргумент
