@@ -12,6 +12,9 @@ struct SemanticError {
 
 /*
  * Символ в таблице символов.
+ * kind - вид узла объявления: Function, Param или VarDecl
+ * type - тип переменной или тип результата функции
+ * node - узел объявления — для функции оттуда берутся параметры
  */
 struct Symbol {
 	NodeKind kind;             // Function, Param или VarDecl
@@ -43,4 +46,12 @@ private:
 	const Symbol* lookup(const std::string& name) const;   // найти от вершины стека вниз; нет — nullptr
 
 	void error(const Token& at, const std::string& message);
+
+	TokenCode checkExpression(Node& n);   // проверить выражение, вернуть его тип. Пишет его в n.type
+	static bool isNumeric(TokenCode t);  // kwInt или kwWord
+	static bool compatible(TokenCode target, TokenCode value);  // можно ли присвоить value переменной типа target
+	static std::string typeName(TokenCode t);  // имя типа "int", "word" или "bool"
+	
+	void checkFunction(Node& fn);
+	void checkStatement(Node& n);
 };

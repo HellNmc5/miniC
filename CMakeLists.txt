@@ -17,6 +17,7 @@ add_library(minic_core STATIC
     ${SRC}/IdTable.cpp
     ${SRC}/Ast.cpp
     ${SRC}/Parser.cpp
+    ${SRC}/Semantic.cpp
 )
 target_include_directories(minic_core PUBLIC ${SRC})
 

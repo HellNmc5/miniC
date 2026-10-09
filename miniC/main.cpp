@@ -8,7 +8,7 @@
 #include "Lexer.h"
 #include "Ast.h"
 #include "Parser.h"
-
+#include "Semantic.h"
 
 using namespace std;
 
@@ -41,17 +41,28 @@ void printSource(const string& text) {
 
 
 int main(int args, char* argv[]) {
-	//argv[1]  - путь
 	SetConsoleOutputCP(CP_UTF8);
-	string path = (args > 1) ? argv[1] : "test.mc";
-		string text = readFile(path);
+
+	string path = (args > 1) ? argv[1] : "test.mc";   // путь из аргумента, иначе test.mc
+	string text = readFile(path);
+	if (text.empty()) {
+		cout << "Не удалось открыть файл: " << path << "\n";
+		return 1;
+	}
+
 	try {
 		Parser p(text);
-		printTree(*p.parseProgram());
+		NodePtr tree = p.parseProgram();
+
+		Semantic sem;
+		vector<SemanticError> errs = sem.check(*tree);
+		for (const auto& e : errs)
+			cout << "семантика, строка " << e.line << ", позиция " << e.col << ": " << e.message << "\n";
+
+		printTree(*tree);
 	}
 	catch (const SyntaxError& e) {
-		cout << "Синтаксическая ошибка, строка " << e.line << ", позиция " << e.col
-		     << ": " << e.message << "\n";
+		cout << "синтаксис, строка " << e.line << ", позиция " << e.col << ": " << e.message << "\n";
 	}
 	return 0;
 }

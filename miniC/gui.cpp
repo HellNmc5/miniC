@@ -31,6 +31,7 @@
 #include "gui.h"
 #include "Lexer.h"
 #include "Parser.h"
+#include "Semantic.h"
 
 #ifdef _MSC_VER
 #pragma comment(lib, "comdlg32.lib")
@@ -373,6 +374,18 @@ void analyze() {
     try {
         Parser parser(source);
         g.tree = parser.parseProgram();
+        // Семантика — только если дерево построено
+        Semantic sem;
+        for (const SemanticError& e : sem.check(*g.tree)) {
+            ++g.errorCount;
+            g.rows[TAB_ERRORS].push_back({ { std::to_string(g.errorCount), std::to_string(e.line),
+                std::to_string(e.col), "", "семантика: " + e.message },
+                TokenClass::Mistake, true, e.line, e.col, 1 });
+            if (e.line > 0) {
+                std::string& m = markers[e.line];
+                m += (m.empty() ? "" : "\n") + e.message;
+            }
+        }
     } catch (const SyntaxError& e) {
         g.syntaxError = e.message;
         ++g.errorCount;
