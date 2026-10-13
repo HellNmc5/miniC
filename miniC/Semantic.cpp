@@ -118,6 +118,7 @@ TokenCode Semantic::checkExpression(Node& n){
                 error(n.token, "«" + n.token.text + "» - функция, а не переменная");
             else
                 result = s->type;
+                n.decl = s->node;
             break;
         }
         /* Унарная операция */
@@ -181,7 +182,7 @@ TokenCode Semantic::checkExpression(Node& n){
         // Вызов функции: ищем функцию в областях видимости. Если нашли, проверяем количество и типы аргументов.
         case NodeKind::Call:{
             const Symbol* s = lookup(n.token.text);
-            if(!s)
+            if(!s)            
                 error(n.token, "функция «" + n.token.text + "» не объявлена");
             else if(s->kind != NodeKind::Function){
                 error(n.token, "«" + n.token.text + "» не является функцией");
@@ -213,6 +214,7 @@ TokenCode Semantic::checkExpression(Node& n){
 				      ", передано: " + std::to_string(n.children.size()));
                 }
                 result = s->type;// результат имеет тип, который возвращает функция
+                n.decl = s->node;// сохраняем ссылку на узел объявления функции, чтобы потом можно было проверить её параметры
             }
             break;
         }
@@ -300,7 +302,8 @@ void Semantic::checkStatement(Node& n) {
             error(n.token, "нельзя присвоить значение функции «" + n.token.text + "»");
             s = nullptr;
         }
-
+        if(s)
+            n.decl = s->node;// сохраняем ссылку на узел объявления переменной
         TokenCode t = checkExpression(*n.children[0]);    // правую часть проверяем в любом случае
         if (s && t != unknown && !compatible(s->type, t))
             error(n.token, "нельзя присвоить " + typeName(t) + " переменной типа " + typeName(s->type));

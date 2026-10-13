@@ -4,6 +4,7 @@
         "TMP": "C:\\Temp"
     },
     "cmake.debugConfig": {
+        "args": ["${workspaceFolder}/miniC/test.mc"],
         "console": "integratedTerminal"
     }
 }

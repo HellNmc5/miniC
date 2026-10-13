@@ -21,6 +21,8 @@ struct Node
 
 	TokenCode type{};//Тип для Function, Param, VarDecl: kwInt, kwWord или kwBool
 	std::vector<std::unique_ptr<Node>> children;// дочерние узлы; порядок задан таблицей узлов
+
+	const Node* decl = nullptr;//Для Var, Assign и Call: узел объявления переменной или функции, на который ссылается этот узел. Для остальных узлов — nullptr
 };
 
 using NodePtr = std::unique_ptr<Node>;//Короткое имя: Указатель на конкретный объект, т.е. он единственный представитель данной структуры

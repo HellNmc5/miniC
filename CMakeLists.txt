@@ -18,6 +18,7 @@ add_library(minic_core STATIC
     ${SRC}/Ast.cpp
     ${SRC}/Parser.cpp
     ${SRC}/Semantic.cpp
+    ${SRC}/Triads.cpp
 )
 target_include_directories(minic_core PUBLIC ${SRC})
 

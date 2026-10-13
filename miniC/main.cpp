@@ -9,6 +9,7 @@
 #include "Ast.h"
 #include "Parser.h"
 #include "Semantic.h"
+#include "Triads.h"
 
 using namespace std;
 
@@ -59,7 +60,13 @@ int main(int args, char* argv[]) {
 		for (const auto& e : errs)
 			cout << "семантика, строка " << e.line << ", позиция " << e.col << ": " << e.message << "\n";
 
-		printTree(*tree);
+				if (!errs.empty()) return 1;            // с семантическими ошибками код не строим
+
+		if (args > 2 && string(argv[2]) == "--tree")
+			printTree(*tree);                    // дерево — только по просьбе
+
+		TriadBuilder builder;
+		printTriads(builder.build(*tree));
 	}
 	catch (const SyntaxError& e) {
 		cout << "синтаксис, строка " << e.line << ", позиция " << e.col << ": " << e.message << "\n";

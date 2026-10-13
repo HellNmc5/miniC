@@ -1,26 +1,26 @@
-#pragma once
+п»ї#pragma once
 #include <string>
 #include <vector>
 
 struct IdEntry {
 	std::string name;
-	int line, col; // Где встретился впервый раз идентификатор
-	int count;// Сколько раз встретился
-	int next;// Индекс следующей записи в цепочке, !!!N-1!!! -1 - конец
+	int line, col; // Р“РґРµ РІСЃС‚СЂРµС‚РёР»СЃСЏ РІРїРµСЂРІС‹Р№ СЂР°Р· РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ
+	int count;// РЎРєРѕР»СЊРєРѕ СЂР°Р· РІСЃС‚СЂРµС‚РёР»СЃСЏ
+	int next;// РРЅРґРµРєСЃ СЃР»РµРґСѓСЋС‰РµР№ Р·Р°РїРёСЃРё РІ С†РµРїРѕС‡РєРµ, !!!N-1!!! -1 - РєРѕРЅРµС†
 };
 
 class IdTable {
 public:
 	explicit IdTable(int bucketCount = 101);
-	int addOrFind(const std::string& name, int line, int col);// возвращаем Номер
+	int addOrFind(const std::string& name, int line, int col);// РІРѕР·РІСЂР°С‰Р°РµРј РќРѕРјРµСЂ
 	const std::vector<IdEntry>& entries() const { return list; }
 	
-	//Получение статистики коллизий и сравнений
+	//РџРѕР»СѓС‡РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё РєРѕР»Р»РёР·РёР№ Рё СЃСЂР°РІРЅРµРЅРёР№
 	int collisions() const { return collisionCount; }
 	int comparisons() const { return compareCount; }
 private:
-	std::vector<int> buckets; //Голова цепочки корзины
-	std::vector<IdEntry> list; //Все записи, которые нашли
+	std::vector<int> buckets; //Р“РѕР»РѕРІР° С†РµРїРѕС‡РєРё РєРѕСЂР·РёРЅС‹
+	std::vector<IdEntry> list; //Р’СЃРµ Р·Р°РїРёСЃРё, РєРѕС‚РѕСЂС‹Рµ РЅР°С€Р»Рё
 	int collisionCount = 0;
 	int compareCount = 0;
 
