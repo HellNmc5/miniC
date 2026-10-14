@@ -181,6 +181,13 @@ TokenCode Semantic::checkExpression(Node& n){
         }
         // Вызов функции: ищем функцию в областях видимости. Если нашли, проверяем количество и типы аргументов.
         case NodeKind::Call:{
+            if(n.token.text == "print"){
+                error(n.token, "print ничего не возвращает - его можно вызвать только отдельно");
+                for(auto& arg : n.children){
+                    checkExpression(*arg);
+                }
+                break;
+            }
             const Symbol* s = lookup(n.token.text);
             if(!s)            
                 error(n.token, "функция «" + n.token.text + "» не объявлена");
@@ -234,6 +241,9 @@ vector<SemanticError> Semantic::check(Node& program){
     pushScope();// глобальная область — здесь живут функции
     // 1. все функции регистрируются заранее, чтобы main могла вызвать функцию, объявленную ниже
     for(auto& fn : program.children){
+        if(fn->token.text == "print"){
+            error(fn->token,"имя print занято встроенной функцией");
+        }
         declare(fn->token, {NodeKind::Function, fn->type, fn.get()});
     }
     // 2. проверка тел функций: области видимости, типы, возвраты, аргументы
@@ -311,10 +321,19 @@ void Semantic::checkStatement(Node& n) {
     }
 
     // Вызов как оператор: все проверки уже есть в checkExpression, результат не нужен
-    case NodeKind::Call:
+    case NodeKind::Call:{
+        if(n.token.text == "print"){
+            if(n.children.size() != 1){
+                error(n.token, "print принимает только 1 значение");
+            }
+            for(auto& arg:n.children){
+                checkExpression(*arg);
+            }
+            break;
+        }
         checkExpression(n);
         break;
-
+    }
     // Условие: условие обязано быть bool; ветка «иначе» — третий ребёнок, если есть
     case NodeKind::If: {
         TokenCode cond = checkExpression(*n.children[0]);

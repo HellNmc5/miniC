@@ -3,6 +3,10 @@ int fact(int n) {
     return n * fact(n - 1, 2);         // лишний аргумент
 }
 
+int print(int x) {
+    return x;
+}
+
 int main() {
     x = 5;                             // x не объявлена
     bool b = 3 + true;                 // число плюс bool
@@ -11,5 +15,9 @@ int main() {
     { int z = 1; }
     z = 2;                             // z не видна вне блока
     fact = 3;                          // присваивание функции
+    print(1,2);
+    int y = print(1);
+    print(mask);
+    print(ok);
     return b;                          // main возвращает int, а тут bool
 }

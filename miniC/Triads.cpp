@@ -11,7 +11,7 @@ namespace {
 		"+", "-", "*", "/", "%", "<<", ">>",
 		"<", ">", "<=", ">=", "==", "!=",
 		"&&", "||", "!", "neg",
-		"param", "call", "jmp", "jf", "C"
+		"param", "call","print", "jmp", "jf", "C"
 	};
     /**
      * @brief 
@@ -218,6 +218,11 @@ void TriadBuilder::getStmt(const Node& n){
             break;
         }
         case NodeKind::Call:{
+            if(n.token.text == "print"){
+                const Node& arg = *n.children[0];
+                emit(TriadOp::Print, getExpr(arg),{}, arg.type);
+                break;
+            }
             getExpr(n);
             break;
         }
