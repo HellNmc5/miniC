@@ -84,6 +84,3 @@ int main(int args, char* argv[]) {
 	}
 	return 0;
 }
-//git add .
-//git commit -m "" -m
-//git push

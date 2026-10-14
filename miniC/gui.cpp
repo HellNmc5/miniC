@@ -32,6 +32,10 @@
 #include "Lexer.h"
 #include "Parser.h"
 #include "Semantic.h"
+#include "Triads.h"
+#include "Optimizer.h"
+#include "CodeGen.h"
+#include "Runner.h"
 
 #ifdef _MSC_VER
 #pragma comment(lib, "comdlg32.lib")
@@ -107,12 +111,22 @@ struct App {
     std::vector<Row> rows[TAB_COUNT];
     int selected[TAB_COUNT] = { -1, -1, -1 };
     int tokenCount = 0, errorCount = 0;
-    std::string problem;       // лексер завис или упал
+    std::string problem;          // лексер завис или упал
+    NodePtr tree;
+    std::string syntaxError;
+    const Node* selectedNode = nullptr;
 
-    NodePtr tree;                        // дерево разбора последнего анализа
-    std::string syntaxError;             // синтаксическая ошибка, если была
-    const Node* selectedNode = nullptr;  // узел, выделенный во вкладке «Дерево»
-
+    // компиляция и запуск
+    std::vector<std::string> triadsBefore, triadsAfter;   // текст триад до и после свёртки
+    std::vector<bool> triadChanged;                        // изменила ли свёртка триаду
+    int folded = 0;
+    std::string asmText;
+    std::vector<std::string> asmLines;
+    RunResult run;
+    bool hasRun = false;          // запускали ли хоть раз
+    bool runBlocked = false;      // последний запуск не состоялся из-за ошибок в программе
+    int runPending = 0;           // >0 — запуск запрошен, ждём кадр, чтобы показать «Сборка…»
+    bool focusOutput = false;     // переключиться на вкладку «Вывод»
     std::vector<std::string> lines;
     float split = 0.42f;       // доля ширины под редактор
     std::string idStats;
@@ -325,8 +339,7 @@ void analyze() {
     for (int& s : g.selected) s = -1;
     TextEditor::ErrorMarkers markers;
 
-    
-    
+
     g.errorCount = 0;
 
     for (size_t n = 0; n < tokens.size(); ++n) {
@@ -344,7 +357,6 @@ void analyze() {
         }
 
         const int len = (int)std::max<size_t>(1, t.text.size());
-
         g.rows[TAB_TOKENS].push_back({ { std::to_string(n + 1), displayLexeme(t.text), className(t.cls), msg,
             std::to_string((int)t.code), std::to_string(t.line), positionText(t), value },
             t.cls, isError, t.line, t.colStart, len });
@@ -370,11 +382,10 @@ void analyze() {
     // 3. Синтаксический анализ того же текста
     g.tree.reset();
     g.syntaxError.clear();
-    g.selectedNode = nullptr;            // старое дерево удалено — указатель на его узел больше недействителен
+    g.selectedNode = nullptr;
     try {
         Parser parser(source);
         g.tree = parser.parseProgram();
-        // Семантика — только если дерево построено
         Semantic sem;
         for (const SemanticError& e : sem.check(*g.tree)) {
             ++g.errorCount;
@@ -397,6 +408,34 @@ void analyze() {
     } catch (const std::exception& e) {
         g.syntaxError = std::string("Парсер завершился с исключением: ") + e.what();
     }
+    // 4. Промежуточный код и ассемблер — только для программы без ошибок
+    g.triadsBefore.clear();
+    g.triadsAfter.clear();
+    g.triadChanged.clear();
+    g.asmText.clear();
+    g.asmLines.clear();
+    if (g.tree && g.errorCount == 0 && g.problem.empty()) {
+        TriadBuilder builder;
+        std::vector<Triad> code = builder.build(*g.tree);
+        auto body = [](const Triad& t, size_t i) {          // текст триады без номера
+            std::string s = triadText(t, (int)i + 1);
+            return s.substr(s.find(": ") + 2);
+        };
+        for (size_t i = 0; i < code.size(); ++i) g.triadsBefore.push_back(body(code[i], i));
+        g.folded = foldConstants(code);
+        for (size_t i = 0; i < code.size(); ++i) {
+            g.triadsAfter.push_back(body(code[i], i));
+            g.triadChanged.push_back(g.triadsAfter[i] != g.triadsBefore[i]);
+        }
+        g.asmText = generateAsm(code);
+        size_t start = 0;
+        for (size_t i = 0; i <= g.asmText.size(); ++i)
+            if (i == g.asmText.size() || g.asmText[i] == '\n') {
+                g.asmLines.push_back(g.asmText.substr(start, i - start));
+                start = i + 1;
+            }
+    }
+
     g.tokenCount = (int)tokens.size();
     g.editor.SetErrorMarkers(markers);
 }
@@ -496,7 +535,8 @@ void drawMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Анализ")) {
-        if (ImGui::MenuItem("Запустить", "F5")) analyze();
+        if (ImGui::MenuItem("Проверить", "F5")) analyze();
+        if (ImGui::MenuItem("Собрать и запустить", "Ctrl+F5")) g.runPending = 2;
         ImGui::MenuItem("При вводе", nullptr, &g.live);
         ImGui::EndMenu();
     }
@@ -519,6 +559,14 @@ void drawToolbar() {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, rgb(0x4FA3E0, 200));
     ImGui::PushStyleColor(ImGuiCol_Text, ACCENT_TEXT);
     if (ImGui::Button("Анализ  F5")) analyze();
+    ImGui::PopStyleColor(4);
+
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button, CONSTANT);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, rgb(0x7ED3B2, 230));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, rgb(0x7ED3B2, 200));
+    ImGui::PushStyleColor(ImGuiCol_Text, ACCENT_TEXT);
+    if (ImGui::Button("Запустить  Ctrl+F5")) g.runPending = 2;
     ImGui::PopStyleColor(4);
 
     ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 2);
@@ -614,8 +662,6 @@ void drawTable(const char* id, Tab tab, std::initializer_list<std::pair<const ch
 
 // ========================================================== дерево разбора
 
-// Цвета узлов — те же, что у классов лексем: операторы языка синие,
-// операции фиолетовые, константы зелёные, остальное — обычным текстом
 ImU32 nodeColor(NodeKind k) {
     switch (k) {
     case NodeKind::Program: case NodeKind::Function: case NodeKind::Param:
@@ -625,12 +671,11 @@ ImU32 nodeColor(NodeKind k) {
         return OPERATOR;
     case NodeKind::Const:
         return CONSTANT;
-    default:                                        // объявление, присваивание, вызов, if, while, return
+    default:
         return KEYWORD;
     }
 }
 
-// Подпись узла — как в консольном printTree
 std::string nodeLabel(const Node& n) {
     std::string s = nodeName(n.kind);
     if (!n.token.text.empty()) s += "  " + n.token.text;
@@ -638,18 +683,15 @@ std::string nodeLabel(const Node& n) {
     return s;
 }
 
-// Один узел и, рекурсивно, его дети
 void drawNode(const Node& n) {
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow |
                                ImGuiTreeNodeFlags_SpanAvailWidth;
     if (n.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     if (&n == g.selectedNode) flags |= ImGuiTreeNodeFlags_Selected;
-
     ImGui::PushStyleColor(ImGuiCol_Text, nodeColor(n.kind));
     const bool open = ImGui::TreeNodeEx("node", flags, "%s", nodeLabel(n).c_str());
     ImGui::PopStyleColor();
-
-    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {   // щелчок по подписи, а не по стрелке
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
         g.selectedNode = &n;
         Row r;
         r.line = n.token.line;
@@ -657,10 +699,9 @@ void drawNode(const Node& n) {
         r.len = (int)std::max<size_t>(1, n.token.text.size());
         selectInEditor(r);
     }
-
     if (open && !n.children.empty()) {
         for (size_t i = 0; i < n.children.size(); ++i) {
-            ImGui::PushID((int)i);          // номер ребёнка — часть идентификатора узла
+            ImGui::PushID((int)i);
             drawNode(*n.children[i]);
             ImGui::PopID();
         }
@@ -675,8 +716,121 @@ void drawTreeTab() {
         return;
     }
     if (!g.tree) return;
-    ImGui::BeginChild("##treeView", ImVec2(0, 0));   // своя прокрутка для длинного дерева
+    ImGui::BeginChild("##treeView", ImVec2(0, 0));
     drawNode(*g.tree);
+    ImGui::EndChild();
+}
+
+// ======================================================== триады, ассемблер, запуск
+
+// Анализ, сборка и запуск. Ассемблер и .exe кладутся в папку run рядом с программой:
+// там нет кириллицы в пути, с которой у консольных утилит бывают сложности.
+void runProgram() {
+    analyze();
+    g.hasRun = true;
+    g.focusOutput = true;
+    g.run = RunResult{};
+    g.runBlocked = g.asmText.empty();
+    if (g.runBlocked) return;
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring dir = exe;
+    dir = dir.substr(0, dir.find_last_of(L"\\/")) + L"\\run";
+    g.run = buildAndRun(g.asmText, dir);
+}
+
+void drawTriadsTab() {
+    if (g.triadsAfter.empty()) {
+        textColored(MUTED, "Триады строятся для программы без ошибок.");
+        return;
+    }
+    textColored(MUTED, ("Свёрнуто триад: " + std::to_string(g.folded) + ". Изменённые свёрткой выделены цветом.").c_str());
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY |
+                                  ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+    if (!ImGui::BeginTable("##triads", 3, flags)) return;
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("№", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn("До свёртки", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableSetupColumn("После свёртки", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableHeadersRow();
+    ImGui::PushFont(g.code);
+    ImGuiListClipper clipper;
+    clipper.Begin((int)g.triadsAfter.size());
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            textColored(MUTED, std::to_string(i + 1).c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(g.triadsBefore[i].c_str());
+            ImGui::TableSetColumnIndex(2);
+            textColored(g.triadChanged[i] ? CONSTANT : TEXT, g.triadsAfter[i].c_str());
+        }
+    }
+    ImGui::PopFont();
+    ImGui::EndTable();
+}
+
+void drawAsmTab() {
+    if (g.asmLines.empty()) {
+        textColored(MUTED, "Ассемблер генерируется для программы без ошибок.");
+        return;
+    }
+    if (ImGui::Button("Копировать")) ImGui::SetClipboardText(g.asmText.c_str());
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    textColored(MUTED, ("NASM, 32-битная Windows, строк: " + std::to_string(g.asmLines.size())).c_str());
+
+    ImGui::BeginChild("##asm", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::PushFont(g.code);
+    ImGuiListClipper clipper;
+    clipper.Begin((int)g.asmLines.size());
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const std::string& line = g.asmLines[i];
+            const size_t semi = line.find(';');
+            const std::string code = line.substr(0, semi);
+            const bool isLabel = !code.empty() && code[0] != ' ' && code.find(':') != std::string::npos;
+            if (!code.empty()) {
+                textColored(isLabel ? KEYWORD : TEXT, code.c_str());
+                if (semi != std::string::npos) ImGui::SameLine(0, 0);
+            }
+            if (semi != std::string::npos) textColored(COMMENT, line.substr(semi).c_str());
+            if (line.empty()) ImGui::TextUnformatted("");
+        }
+    }
+    ImGui::PopFont();
+    ImGui::EndChild();
+}
+
+void drawOutputTab() {
+    if (g.runPending > 0) {
+        textColored(MUTED, "Сборка и запуск…");
+        return;
+    }
+    if (!g.hasRun) {
+        textColored(MUTED, "Нажмите «Запустить» или Ctrl+F5 — программа соберётся и выполнится, а её вывод появится здесь.");
+        return;
+    }
+    if (g.runBlocked) {
+        textColored(ERROR_FG, "Программа не запущена: в ней есть ошибки — см. вкладку «Ошибки»");
+        return;
+    }
+    if (!g.run.built)
+        textColored(ERROR_FG, "Сборка не удалась");
+    else if (!g.run.finished)
+        textColored(ERROR_FG, "Программа работала дольше 5 секунд и была остановлена");
+    else
+        textColored(CONSTANT, ("Программа завершилась с кодом " + std::to_string(g.run.exitCode)).c_str());
+    ImGui::Separator();
+
+    ImGui::BeginChild("##output", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::PushFont(g.code);
+    if (g.run.output.empty())
+        textColored(MUTED, "(программа ничего не напечатала)");
+    else
+        ImGui::TextUnformatted(g.run.output.c_str());
+    ImGui::PopFont();
     ImGui::EndChild();
 }
 
@@ -710,6 +864,20 @@ void drawResults(float width, float height) {
         if (open) {
             drawTable("##errors", TAB_ERRORS, { { "№", 0 }, { "Строка", 0 }, { "Позиция", 0 },
                 { "Фрагмент", 1.0f }, { "Сообщение", 3.0f } });
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Триады###triads")) {
+            drawTriadsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Ассемблер###asm")) {
+            drawAsmTab();
+            ImGui::EndTabItem();
+        }
+        const ImGuiTabItemFlags outFlags = g.focusOutput ? ImGuiTabItemFlags_SetSelected : 0;
+        g.focusOutput = false;
+        if (ImGui::BeginTabItem("Вывод###output", nullptr, outFlags)) {
+            drawOutputTab();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -755,7 +923,10 @@ void guiInit(HWND hwnd, float scale) {
 
 void guiFrame() {
     ImGuiIO& io = ImGui::GetIO();
-    if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) analyze();
+    if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
+        if (io.KeyCtrl) g.runPending = 2;          // Ctrl+F5 — собрать и запустить
+        else analyze();                             // F5 — только проверить
+    }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) openFile();
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) saveFile(io.KeyShift);
 
@@ -780,6 +951,10 @@ void guiFrame() {
     ImGui::End();
 
     if (g.live && g.changedAt >= 0 && ImGui::GetTime() - g.changedAt > 0.3) analyze();
+
+    // Запуск откладывается на кадр: сначала интерфейс успевает показать «Сборка и запуск…»,
+    // а уже потом окно замирает на время работы nasm, link и самой программы.
+    if (g.runPending > 0 && --g.runPending == 0) runProgram();
 }
 
 bool guiConfirmClose() {

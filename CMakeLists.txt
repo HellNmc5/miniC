@@ -21,6 +21,7 @@ add_library(minic_core STATIC
     ${SRC}/Triads.cpp
     ${SRC}/Optimizer.cpp
     ${SRC}/CodeGen.cpp
+    ${SRC}/Runner.cpp
 )
 target_include_directories(minic_core PUBLIC ${SRC})
 
