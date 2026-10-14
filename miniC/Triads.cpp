@@ -32,13 +32,43 @@ namespace {
 		}
 	}
     // Короткие способы создать операнд нужного вида
+    /**
+     * @brief Создать операнд-константу.
+     * 
+     * @param v 
+     */
 	Operand constant(int v)        { Operand o; o.kind = OperandKind::Const;  o.value = v; return o; }
+    /**
+     * @brief Создать ссылку на результат другой триады — в выводе «^number».
+     * 
+     * @param number номер триады, с единицы
+     */
 	Operand ref(int number)        { Operand o; o.kind = OperandKind::Ref;    o.value = number; return o; }
+    /**
+     * @brief Создать цель перехода для jmp и jf.
+     * 
+     * @param number номер триады, к которой перейти
+     */
 	Operand target(int number)     { Operand o; o.kind = OperandKind::Target; o.value = number; return o; }
+    /**
+     * @brief Создать операнд-переменную.
+     * 
+     * @param decl узел объявления — VarDecl или Param; по нему генератор найдёт,
+     * где переменная лежит в памяти, даже если имена совпадают
+     */
 	Operand var(const Node* decl)  { Operand o; o.kind = OperandKind::Var;    o.decl = decl; return o; }
+    /**
+     * @brief Создать операнд-функцию для триад proc и call.
+     * 
+     * @param decl узел объявления функции
+     */
 	Operand func(const Node* decl) { Operand o; o.kind = OperandKind::Func;   o.decl = decl; return o; }
 
 	// Двухместная операция в дереве → операция триады
+    /**
+    * Соответствие двухместных операций дерева операциям триад.
+    * В дереве операция хранится кодом лексемы (OpPlus), в триаде — своим кодом (Add).
+    */
 	const unordered_map<TokenCode, TriadOp> binaryOps = {
 		{ TokenCode::OpPlus, TriadOp::Add },      { TokenCode::OpMinus, TriadOp::Sub },
 		{ TokenCode::OpMult, TriadOp::Mul },      { TokenCode::OpDiv, TriadOp::Div },
@@ -50,7 +80,12 @@ namespace {
 		{ TokenCode::OpLogAnd, TriadOp::And },    { TokenCode::OpLogOr, TriadOp::Or },
 	};
 }
-
+/**
+ * @brief Одна триада в виде строки, например «8: *  n, ^7».
+ * @param t      триада
+ * @param number её номер в списке, с единицы
+ * @return строка для вывода в консоль, интерфейс или записку
+ */
 string triadText(const Triad& t, int number){
     string s = to_string(number) + ": " + opNames[static_cast<int>(t.op)];
     string a = operandText(t.a), b = operandText(t.b);
@@ -58,32 +93,47 @@ string triadText(const Triad& t, int number){
     if(!b.empty()) s+=", " + b;
     return s;
 }
-
+/**
+ * @brief Вывести список триад в консоль, по одной в строке.
+ */
 void printTriads(const vector<Triad>& code){
     for (size_t i = 0; i<code.size(); ++i){
         cout<<triadText(code[i], (int) i+1)<<endl;
     }
 }
-//Дописать триаду в конец списка; номер - с единицы
+
+/**
+ * @brief Дописать триаду в конец списка.
+ * @param op   операция
+ * @param a    первый операнд, если есть
+ * @param b    второй операнд, если есть
+ * @param type тип результата — int, word или bool; генератору он нужен,
+ *             чтобы выбрать знаковую или беззнаковую команду
+ * @return номер созданной триады, с единицы — на него потом ссылаются через ^номер
+ */
 int TriadBuilder::emit(TriadOp op, Operand a, Operand b, TokenCode type){
     code.push_back({op, a, b, type});
     return (int) code.size();
 }
 /**
- * @brief 
- * 
- * @param number 
- * @param to 
+ * @brief Вписать цель в уже созданный переход — «обратная заплатка».
+ *
+ * Когда создаётся переход вперёд, его цель ещё неизвестна: код, через который
+ * надо перепрыгнуть, ещё не сгенерирован. Переход создаётся с пустой целью,
+ * а когда код готов, цель вписывается этим методом.
+ *
+ * @param number номер перехода
+ * @param to     номер триады, к которой он должен вести
  */
 void TriadBuilder::patch(int number, int to){
     Triad& t = code[number-1];
     (t.op == TriadOp::Jmp ? t.a : t.b) = target(to);
 }
 /**
- * @brief 
- * 
- * @param program 
- * @return vector<Triad> 
+ * @brief Построить триады для всей программы.
+ * @param program корень дерева — узел Program; семантика уже должна быть пройдена
+ *                без ошибок, иначе у переменных не будет ссылок на объявления
+ * @return триады всех функций одним списком, по порядку объявления функций
  */
 vector<Triad> TriadBuilder::build(const Node& program){
     code.clear();
@@ -93,9 +143,10 @@ vector<Triad> TriadBuilder::build(const Node& program){
     return code;
 }
 /**
- * @brief 
- * 
- * @param fn 
+ * @brief Триады одной функции: proc, тело, страховочный ret 0.
+ *
+ * ret 0 в конце нужен на случай, если выполнение дошло до конца функции
+ * без return, и как цель для переходов, которые ведут «за конец» тела.
  */
 void TriadBuilder::getFunction(const Node& fn){
     emit(TriadOp::Proc, func(&fn));
@@ -103,12 +154,14 @@ void TriadBuilder::getFunction(const Node& fn){
     emit(TriadOp::Ret,constant(0));//Страховка
 }
 /**
- * @brief 
- * 
- * Создаем операнды для триад
- * 
- * @param n - Узел
- * @return Operand - то, на что в следующих триадах можно будет сослаться на результат
+ * @brief Выражение → триады; вернуть операнд с его результатом.
+ *
+ * Обход снизу вверх: сначала операнды, потом операция. Константа и
+ * переменная — уже готовые операнды, триад для них не создаётся.
+ * Для операций и вызовов создаётся триада, и возвращается ссылка на неё.
+ *
+ * @param n узел выражения
+ * @return то, через что на результат можно сослаться в следующих триадах
  */
 Operand TriadBuilder::getExpr(const Node& n){
     switch (n.kind){
@@ -136,7 +189,16 @@ Operand TriadBuilder::getExpr(const Node& n){
             return {};
     }
 }
-
+/**
+ * @brief Оператор → триады.
+ *
+ * Простые операторы дают одну-две триады. if и while превращаются
+ * в переходы jf и jmp, цели которых вписываются через patch:
+ *   if:    условие, jf → «иначе», ветка «то», jmp → конец, ветка «иначе»
+ *   while: условие, jf → выход, тело, jmp → обратно к условию
+ *
+ * @param n узел оператора
+ */
 void TriadBuilder::getStmt(const Node& n){
     switch(n.kind){
         case NodeKind::Block:{

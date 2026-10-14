@@ -10,6 +10,7 @@
 #include "Parser.h"
 #include "Semantic.h"
 #include "Triads.h"
+#include "Optimizer.h"
 
 using namespace std;
 
@@ -66,7 +67,13 @@ int main(int args, char* argv[]) {
 			printTree(*tree);                    // дерево — только по просьбе
 
 		TriadBuilder builder;
-		printTriads(builder.build(*tree));
+		vector<Triad> code = builder.build(*tree);
+		cout << "--- триады ---\n";
+		printTriads(code);
+
+		int folded = foldConstants(code);
+		cout << "\n--- после свёртки констант (свёрнуто: " << folded << ") ---\n";
+		printTriads(code);
 	}
 	catch (const SyntaxError& e) {
 		cout << "синтаксис, строка " << e.line << ", позиция " << e.col << ": " << e.message << "\n";
