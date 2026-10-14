@@ -365,5 +365,10 @@ FodyWeavers.xsd
 build/
 
 .vscode/*
+
+*.asm
+*.obj
+*.exe
+
 !.vscode/settings.json
 !.vscode/extensions.json

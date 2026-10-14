@@ -11,6 +11,7 @@
 #include "Semantic.h"
 #include "Triads.h"
 #include "Optimizer.h"
+#include "CodeGen.h"
 
 using namespace std;
 
@@ -74,6 +75,9 @@ int main(int args, char* argv[]) {
 		int folded = foldConstants(code);
 		cout << "\n--- после свёртки констант (свёрнуто: " << folded << ") ---\n";
 		printTriads(code);
+		string asmPath = path.substr(0, path.find_last_of('.')) + ".asm";
+		ofstream(asmPath) << generateAsm(code);
+		cout << "\nассемблер записан в " << asmPath << "\n";
 	}
 	catch (const SyntaxError& e) {
 		cout << "синтаксис, строка " << e.line << ", позиция " << e.col << ": " << e.message << "\n";

@@ -20,6 +20,7 @@ add_library(minic_core STATIC
     ${SRC}/Semantic.cpp
     ${SRC}/Triads.cpp
     ${SRC}/Optimizer.cpp
+    ${SRC}/CodeGen.cpp
 )
 target_include_directories(minic_core PUBLIC ${SRC})
 
