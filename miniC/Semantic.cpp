@@ -116,9 +116,10 @@ TokenCode Semantic::checkExpression(Node& n){
                 error(n.token, "переменная «" + n.token.text + "» не объявлена");
             else if (s->kind == NodeKind::Function)
                 error(n.token, "«" + n.token.text + "» - функция, а не переменная");
-            else
+            else{
                 result = s->type;
                 n.decl = s->node;
+            }
             break;
         }
         /* Унарная операция */
