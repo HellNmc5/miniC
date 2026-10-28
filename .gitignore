@@ -366,6 +366,7 @@ build/
 
 .vscode/*
 
+*.mc
 *.asm
 *.obj
 *.exe

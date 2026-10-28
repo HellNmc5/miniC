@@ -386,25 +386,31 @@ void analyze() {
     try {
         Parser parser(source);
         g.tree = parser.parseProgram();
-        Semantic sem;
-        for (const SemanticError& e : sem.check(*g.tree)) {
+        for (const SyntaxError& e : parser.errors()) {          // все синтаксические ошибки
             ++g.errorCount;
             g.rows[TAB_ERRORS].push_back({ { std::to_string(g.errorCount), std::to_string(e.line),
-                std::to_string(e.col), "", "семантика: " + e.message },
+                std::to_string(e.col), "", "синтаксис: " + e.message },
                 TokenClass::Mistake, true, e.line, e.col, 1 });
-            if (e.line > 0) {
-                std::string& m = markers[e.line];
-                m += (m.empty() ? "" : "\n") + e.message;
+            std::string& m = markers[e.line];
+            m += (m.empty() ? "" : "\n") + e.message;
+        }
+        if (!parser.errors().empty()) {                         // дерево неполное — семантику не проверяем
+            g.syntaxError = "Синтаксических ошибок: " + std::to_string(parser.errors().size()) +
+                            ". Первая: " + parser.errors().front().message;
+            g.tree.reset();
+        } else {
+            Semantic sem;
+            for (const SemanticError& e : sem.check(*g.tree)) {
+                ++g.errorCount;
+                g.rows[TAB_ERRORS].push_back({ { std::to_string(g.errorCount), std::to_string(e.line),
+                    std::to_string(e.col), "", "семантика: " + e.message },
+                    TokenClass::Mistake, true, e.line, e.col, 1 });
+                if (e.line > 0) {
+                    std::string& m = markers[e.line];
+                    m += (m.empty() ? "" : "\n") + e.message;
+                }
             }
         }
-    } catch (const SyntaxError& e) {
-        g.syntaxError = e.message;
-        ++g.errorCount;
-        g.rows[TAB_ERRORS].push_back({ { std::to_string(g.errorCount), std::to_string(e.line),
-            std::to_string(e.col), "", "синтаксис: " + e.message },
-            TokenClass::Mistake, true, e.line, e.col, 1 });
-        std::string& m = markers[e.line];
-        m += (m.empty() ? "" : "\n") + e.message;
     } catch (const std::exception& e) {
         g.syntaxError = std::string("Парсер завершился с исключением: ") + e.what();
     }
