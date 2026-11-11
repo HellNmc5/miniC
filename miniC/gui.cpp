@@ -33,6 +33,7 @@
 #include "Parser.h"
 #include "Semantic.h"
 #include "Triads.h"
+#include "Tac.h"
 #include "Optimizer.h"
 #include "CodeGen.h"
 #include "Runner.h"
@@ -115,10 +116,14 @@ struct App {
     NodePtr tree;
     std::string syntaxError;
     const Node* selectedNode = nullptr;
+    CstPtr cst;                        // дерево разбора (CST)
+    const CstNode* selectedCst = nullptr;
+    bool showCst = true;               // вкладка «Дерево»: true — дерево разбора, false — сокращённое
 
     // компиляция и запуск
     std::vector<std::string> triadsBefore, triadsAfter;   // текст триад до и после свёртки
     std::vector<bool> triadChanged;                        // изменила ли свёртка триаду
+    std::vector<std::string> tac;                          // трёхадресный код (до свёртки)
     int folded = 0;
     std::string asmText;
     std::vector<std::string> asmLines;
@@ -280,7 +285,7 @@ void loadFonts() {
     static ImVector<ImWchar> ranges;
     ImFontGlyphRangesBuilder b;
     b.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
-    b.AddText("–—…№");
+    b.AddText("–—…№→");                      // → — стрелка в дереве разбора
     b.BuildRanges(&ranges);
 
     wchar_t win[MAX_PATH] = L"C:\\Windows";
@@ -383,9 +388,12 @@ void analyze() {
     g.tree.reset();
     g.syntaxError.clear();
     g.selectedNode = nullptr;
+    g.cst.reset();
+    g.selectedCst = nullptr;
     try {
         Parser parser(source);
         g.tree = parser.parseProgram();
+        g.cst = parser.takeCst();
         for (const SyntaxError& e : parser.errors()) {          // все синтаксические ошибки
             ++g.errorCount;
             g.rows[TAB_ERRORS].push_back({ { std::to_string(g.errorCount), std::to_string(e.line),
@@ -398,6 +406,7 @@ void analyze() {
             g.syntaxError = "Синтаксических ошибок: " + std::to_string(parser.errors().size()) +
                             ". Первая: " + parser.errors().front().message;
             g.tree.reset();
+            g.cst.reset();
         } else {
             Semantic sem;
             for (const SemanticError& e : sem.check(*g.tree)) {
@@ -418,11 +427,13 @@ void analyze() {
     g.triadsBefore.clear();
     g.triadsAfter.clear();
     g.triadChanged.clear();
+    g.tac.clear();
     g.asmText.clear();
     g.asmLines.clear();
     if (g.tree && g.errorCount == 0 && g.problem.empty()) {
         TriadBuilder builder;
         std::vector<Triad> code = builder.build(*g.tree);
+        g.tac = tacLines(code);                             // трёхадресный код — по триадам до свёртки
         auto body = [](const Triad& t, size_t i) {          // текст триады без номера
             std::string s = triadText(t, (int)i + 1);
             return s.substr(s.find(": ") + 2);
@@ -715,6 +726,58 @@ void drawNode(const Node& n) {
     }
 }
 
+// Первая лексема поддерева — по ней узел дерева разбора выделяется в редакторе
+const CstNode* firstTerminal(const CstNode* n) {
+    if (n->terminal) return n;
+    for (const auto& c : n->children)
+        if (const CstNode* t = firstTerminal(c.get())) return t;
+    return nullptr;
+}
+
+/*
+ Узел дерева разбора. Цепочка единственных потомков пишется в одну строку
+ через стрелку («<тип> → int»), дальше раскрываются потомки последнего узла цепочки.
+*/
+void drawCstNode(const CstNode* n) {
+    const CstNode* start = n;
+    std::string label = cstChain(n);                        // n — конец цепочки
+    std::string leaf;                                       // лексема в конце цепочки — своим цветом
+    if (n->terminal) {
+        leaf = n->label;
+        label.erase(label.size() - leaf.size());
+    }
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow |
+                               ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (n->children.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    if (start == g.selectedCst) flags |= ImGuiTreeNodeFlags_Selected;
+    const bool open = ImGui::TreeNodeEx("##cst", flags);
+    const bool clicked = ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen();
+    ImGui::SameLine();
+    ImGui::TextUnformatted(label.c_str());
+    if (!leaf.empty()) {
+        ImGui::SameLine(0, 0);
+        textColored(classColor(n->token.cls), leaf.c_str());
+    }
+    if (clicked) {
+        g.selectedCst = start;
+        if (const CstNode* t = firstTerminal(start)) {
+            Row r;
+            r.line = t->token.line;
+            r.col = t->token.colStart;
+            r.len = (int)std::max<size_t>(1, t->token.text.size());
+            selectInEditor(r);
+        }
+    }
+    if (open && !n->children.empty()) {
+        for (size_t i = 0; i < n->children.size(); ++i) {
+            ImGui::PushID((int)i);
+            drawCstNode(n->children[i].get());
+            ImGui::PopID();
+        }
+        ImGui::TreePop();
+    }
+}
+
 void drawTreeTab() {
     if (!g.syntaxError.empty()) {
         textColored(ERROR_FG, g.syntaxError.c_str());
@@ -722,8 +785,12 @@ void drawTreeTab() {
         return;
     }
     if (!g.tree) return;
-    ImGui::BeginChild("##treeView", ImVec2(0, 0));
-    drawNode(*g.tree);
+    if (ImGui::RadioButton("Дерево разбора", g.showCst)) g.showCst = true;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Сокращённое дерево", !g.showCst)) g.showCst = false;
+    ImGui::BeginChild("##treeView", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    if (g.showCst && g.cst) drawCstNode(g.cst.get());
+    else drawNode(*g.tree);
     ImGui::EndChild();
 }
 
@@ -775,6 +842,36 @@ void drawTriadsTab() {
     }
     ImGui::PopFont();
     ImGui::EndTable();
+}
+
+/*
+ Трёхадресный код. Метки (L5:) — цветом ключевых слов, заголовки функций — жирным.
+ tN — результат триады N, поэтому строки легко сверить с вкладкой «Триады».
+*/
+void drawTacTab() {
+    if (g.tac.empty()) {
+        textColored(MUTED, "Трёхадресный код строится для программы без ошибок.");
+        return;
+    }
+    if (ImGui::Button("Копировать##tac")) {
+        std::string all;
+        for (const std::string& line : g.tac) all += line + "\n";
+        ImGui::SetClipboardText(all.c_str());
+    }
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    textColored(MUTED, "до оптимизации; tN — результат триады N, LN — переход к триаде N");
+
+    ImGui::BeginChild("##tac", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::PushFont(g.code);
+    for (const std::string& line : g.tac) {
+        if (line.empty()) ImGui::TextUnformatted("");
+        else if (line[0] == 'L') textColored(KEYWORD, line.c_str());       // метка
+        else if (line[0] == 'p') textColored(CONSTANT, line.c_str());      // proc имя(параметры)
+        else ImGui::TextUnformatted(line.c_str());
+    }
+    ImGui::PopFont();
+    ImGui::EndChild();
 }
 
 void drawAsmTab() {
@@ -870,6 +967,10 @@ void drawResults(float width, float height) {
         if (open) {
             drawTable("##errors", TAB_ERRORS, { { "№", 0 }, { "Строка", 0 }, { "Позиция", 0 },
                 { "Фрагмент", 1.0f }, { "Сообщение", 3.0f } });
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("TAC###tac")) {
+            drawTacTab();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Триады###triads")) {

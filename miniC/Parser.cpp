@@ -3,122 +3,103 @@
 
 using namespace std;
 
-/*
- * ============================================================================
- *  СИНТАКСИЧЕСКИЙ АНАЛИЗАТОР miniC (ЛР 2) — что откуда приходит и куда уходит
- * ============================================================================
- *
- *  ВХОД:   std::string source — текст программы (из main.cpp или gui.cpp).
- *  ВЫХОД:  NodePtr — корень дерева разбора (возвращает parseProgram)
- *          + список SyntaxError (отдаёт errors()).
- *
- *  Поток данных:
- *
- *    source ──► Lexer (ЛР 1) ──nextToken()──► cur ──► функции разбора ──► узлы Node
- *                                                         │                   │
- *                                                         │ error()           └─► children родителя
- *                                                         ▼                        └─► ... ─► Program
- *                                              throw SyntaxError
- *                                                         │
- *                                     catch в parseBlock / parseProgram
- *                                                         │
- *                                          report() ─► errorList ─► errors()
- *                                          sync...() ─► пропуск лексем ─► разбор дальше
- *
- *  Путь по методам (кто кого вызывает; ↺ — повторный вызов функции выше):
- *
- *    parseProgram                         цикл до конца файла, catch ─► syncFunction
- *    └─ parseFunction
- *       ├─ parseParam                     для каждого параметра
- *       └─ parseBlock                     цикл до «}», catch ─► syncStatement
- *          └─ parseStatement              ветка выбирается по cur:
- *             ├─ parseVarDecl             тип ...
- *             ├─ parseIf                  if ...      ─► parseStatement ↺ (then, else)
- *             ├─ parseWhile               while ...   ─► parseStatement ↺ (тело)
- *             ├─ parseReturn              return ...
- *             ├─ parseBlock ↺             { ...       (вложенный блок)
- *             └─ присваивание / вызов     имя = ...  |  имя ( ... ─► parseArguments
- *
- *    Все ветки, где нужно выражение, приходят в одну точку:
- *    parseExpression
- *    └─ parseBinary(0)   ||                  каждый уровень сначала вызывает
- *       └─ parseBinary(1)   &&               следующий, а потом смотрит на свой знак
- *          └─ ... parseBinary(6)   * / %
- *             └─ parseBinary(7) ─► parseUnary ─► parsePrimary
- *                                     ↺ (-, !)    ├─ ( выражение ) ─► parseExpression ↺
- *                                                 └─ имя ( ... )   ─► parseArguments ─► parseExpression ↺
- *
- *  Как строится дерево: каждая функция parseX разбирает одно правило РБНФ
- *  и ВОЗВРАЩАЕТ готовый узел. Вызвавшая функция кладёт его в children своего
- *  узла. Так из вложенных вызовов складывается дерево снизу вверх.
- *
- *  Пометки в комментариях к функциям:
- *    cur ДО     — какая лексема лежит в cur, когда функцию вызывают;
- *    cur ПОСЛЕ  — какая лексема лежит в cur, когда функция вернулась;
- *    ВОЗВРАТ    — что функция отдаёт и кто это забирает.
- */
-
 namespace {
-	/*
-	 Таблица уровней приоритета для parseBinary: строка = одно правило РБНФ
-	 (<или>, <и>, <равенство>, <сравнение>, <сдвиг>, <сумма>, <произведение>).
-	 Чем больше индекс, тем сильнее операция и тем глубже она в дереве.
-	*/
 	const vector<vector<TokenCode>> levels = {
-		{ TokenCode::OpLogOr },                                   // 0: ||
-		{ TokenCode::OpLogAnd },                                  // 1: &&
-		{ TokenCode::OpEq, TokenCode::OpNotAssign },              // 2: == !=
+		{ TokenCode::OpLogOr },                                   // ||
+		{ TokenCode::OpLogAnd },                                  // &&
+		{ TokenCode::OpEq, TokenCode::OpNotAssign },              // == !=
 		{ TokenCode::OpMenee, TokenCode::OpBolee,
-		  TokenCode::OpMenAssi, TokenCode::OpBolAssi },           // 3: < > <= >=
-		{ TokenCode::OpMoveLeft, TokenCode::OpMoveRight },        // 4: << >>
-		{ TokenCode::OpPlus, TokenCode::OpMinus },                // 5: + -
-		{ TokenCode::OpMult, TokenCode::OpDiv, TokenCode::OpDivPerc },  // 6: * / %
+		  TokenCode::OpMenAssi, TokenCode::OpBolAssi },           // < > <= >=
+		{ TokenCode::OpMoveLeft, TokenCode::OpMoveRight },        // << >>
+		{ TokenCode::OpPlus, TokenCode::OpMinus },                // + -
+		{ TokenCode::OpMult, TokenCode::OpDiv, TokenCode::OpDivPerc },  // * / %
 	};
 
-	// Коды типов: с них начинается функция, параметр и объявление переменной
 	const vector<TokenCode> types = { TokenCode::kwInt, TokenCode::kwWord, TokenCode::kwBool };
+
+	// Имена нетерминалов для строк таблицы levels — узлы дерева разбора
+	const char* const levelNames[] = { "Или", "И", "Равенство", "Сравнение", "Сдвиг", "Сумма", "Произведение" };
 }
 
-/* ===================== Связь с лексером (интеграция с ЛР 1) ===================== */
-
-/*
- Конструктор: source уходит в конструктор Lexer (поле lexer),
- затем advance() кладёт в cur первую лексему программы.
-*/
 Parser::Parser(const string& source) : lexer(source) {
-	advance();
+	advance();   // сразу читаем первую лексему
 }
 
-/*
- Единственное место, где парсер получает лексемы от лексера.
- cur ДО: лексема, которую уже разобрали.  cur ПОСЛЕ: следующая лексема.
- Лексемы-ошибки (код Error) уже показаны лексическим анализом, здесь пропускаются.
-*/
+// Перейти к следующей лексеме. Лексемы-ошибки пропускаются
 void Parser::advance() {
+	cstLeaf(cur);   // забираемая лексема уходит листом в дерево разбора
 	cur = lexer.nextToken();
 	while (cur.code == TokenCode::Error) {
 		cur = lexer.nextToken();
 	}
 }
 
-/* ===================== Базовые операции над cur ===================== */
+/*
+ Лексема — листом в текущий узел дерева разбора.
+ Идентификатор и константа в грамматике — нетерминалы <идентификатор> и <константа>
+ (лексический уровень), поэтому для них сначала узел, а лексема — под ним.
+*/
+void Parser::cstLeaf(const Token& t) {
+	if (cstStack.empty() || recovering || t.code == TokenCode::EndOfFile) return;
+	CstNode* parent = cstStack.back();
+	const bool ownNode = parent->label == "Имя функции";   // имя функции уже в своём узле — второй не нужен
+	if (!ownNode && (t.code == TokenCode::Identfier || t.code == TokenCode::IntConst)) {
+		CstPtr wrap(new CstNode());
+		wrap->label = t.code == TokenCode::Identfier ? "Идентификатор" : "Константа";
+		parent->children.push_back(move(wrap));
+		parent = parent->children.back().get();
+	}
+	CstPtr leaf(new CstNode());
+	leaf->label = t.text;
+	leaf->terminal = true;
+	leaf->token = t;
+	parent->children.push_back(move(leaf));
+}
 
-// Только смотрит: cur такого вида? cur не меняется.
+// Открыть узел нетерминала: первый становится корнем, остальные — потомками текущего
+Parser::CstScope::CstScope(Parser& parser, const char* name) : p(parser) {
+	CstPtr node(new CstNode());
+	node->label = name;
+	CstNode* raw = node.get();
+	if (p.cstStack.empty()) p.cstRoot = move(node);
+	else p.cstStack.back()->children.push_back(move(node));
+	p.cstStack.push_back(raw);
+}
+
+// Закрыть узел: текущим снова становится родитель
+Parser::CstScope::~CstScope() {
+	p.cstStack.pop_back();
+}
+
+size_t Parser::cstMark() const {
+	return cstStack.empty() ? 0 : cstStack.back()->children.size();
+}
+
+// Узлы текущего узла начиная с mark — в новый узел name, он становится текущим
+void Parser::CstLift::wrap(const char* name, size_t mark) {
+	if (active || p.cstStack.empty() || p.recovering) return;
+	CstNode* parent = p.cstStack.back();
+	CstPtr node(new CstNode());
+	node->label = name;
+	for (size_t i = mark; i < parent->children.size(); ++i)
+		node->children.push_back(move(parent->children[i]));
+	parent->children.resize(mark);
+	CstNode* raw = node.get();
+	parent->children.push_back(move(node));
+	p.cstStack.push_back(raw);
+	active = true;
+}
+
+Parser::CstLift::~CstLift() {
+	if (active) p.cstStack.pop_back();
+}
+
+// Текущая лексема такого вида?
+//check(TokenCode::DotComm) — стоит ли сейчас «;»
 bool Parser::check(TokenCode code) const {
 	return cur.code == code;
 }
 
-// cur одного из перечисленных видов? cur не меняется.
-bool Parser::checkAny(const vector<TokenCode>& codes) const {
-	for (TokenCode c : codes)
-		if (check(c)) return true;
-	return false;
-}
-
-/*
- Необязательная лексема ( [ ... ] и { ... } в РБНФ ).
- Совпала — забираем (advance) и возвращаем true; нет — cur не трогаем, false.
-*/
 bool Parser::match(TokenCode code) {
 	if (check(code)) {
 		advance();
@@ -127,11 +108,6 @@ bool Parser::match(TokenCode code) {
 	return false;
 }
 
-/*
- Обязательная лексема.
- ВОЗВРАТ: забранная лексема — нужна, когда из неё берут имя (parseVarDecl, parseParam).
- Не совпала — error(): исключение уходит вверх до ближайшего catch.
-*/
 Token Parser::expect(TokenCode code, const string& what) {
 	if (check(code)) {
 		Token t = cur;
@@ -141,195 +117,179 @@ Token Parser::expect(TokenCode code, const string& what) {
 	error("Ожидалось " + what);
 }
 
-/*
- Формирует сообщение по требованиям методички: что ожидалось + что встретилось,
- строка и позиция берутся из cur (лексер записал их в Token).
- throw SyntaxError ─► catch в parseBlock (ошибка в операторе)
-                  └─► или catch в parseProgram (ошибка вне блока).
-*/
 void Parser::error(const string& message) {
 	string got = cur.code == TokenCode::EndOfFile ? "конец файла" : "«" + cur.text + "»";
 	throw SyntaxError{ message + ", а встретилось " + got, cur.line, cur.colStart };
 }
 
-/* ===================== Выражения: parseExpression → parseBinary(0..6) → parseUnary → parsePrimary ===================== */
-
-/*
- Собирает узел Binary. op — лексема знака (станет node->token),
- left и right — уже готовые поддеревья операндов (unique_ptr переносятся через move).
- ВОЗВРАТ: новый узел ─► parseBinary, который сделает его левым операндом следующего знака.
-*/
-NodePtr Parser::makeBinary(const Token& op, NodePtr left, NodePtr right) {
-	NodePtr n = makeNode(NodeKind::Binary, op);
-	n->children.push_back(move(left));    // children[0] — левый операнд
-	n->children.push_back(move(right));   // children[1] — правый (для «-» порядок важен)
-	return n;
+// Текущая лексема — одна из перечисленных?
+bool Parser::checkAny(const vector<TokenCode>& codes) const {
+	for (TokenCode c : codes)
+		if (check(c)) return true;
+	return false;
 }
 
-/*
- <выражение> ::= <или>
- Вызывают: parseVarDecl, присваивание и вызов в parseStatement, parseIf, parseWhile,
-           parseReturn, parseArguments, скобки в parsePrimary.
- ВОЗВРАТ: корень поддерева выражения ─► вызывающий кладёт его в children своего узла.
-*/
+NodePtr Parser::makeBinary(const Token& op, NodePtr left, NodePtr right) {
+	NodePtr n = makeNode(NodeKind::Binary, op);
+	// Собрать узел двухместной операции: op с детьми left и right.
+	// Для 2 + 3: узел «+», children[0] = 2, children[1] = 3. Порядок важен — для «-» это a - b, а не b - a.
+	n->children.push_back(move(left));
+	n->children.push_back(move(right));
+	return n;
+}
+//Парсер выражения
 NodePtr Parser::parseExpression() {
 	return parseBinary(0);
 }
 
-/*
- Одно правило вида  <уровень> ::= <уровень+1> { знак_уровня <уровень+1> }.
- level = индекс строки в таблице levels.
- cur ДО: первая лексема операнда.  cur ПОСЛЕ: первая лексема, которая не является
-         знаком этого уровня (её разберёт уровень слабее или вызывающая функция).
- ВОЗВРАТ: поддерево ─► parseBinary(level - 1) или parseExpression.
-*/
+// Один этаж двухместных операций из таблицы levels.
+// <этаж> ::= <этаж ниже> { операция_этажа <этаж ниже> }
 NodePtr Parser::parseBinary(size_t level) {
-	if (level == levels.size()) {                          // уровни кончились —
+	if (level == levels.size()) {                          // этажи кончились —
 		return parseUnary();                               //   дальше только операнд
 	}
-	NodePtr left = parseBinary(level + 1);                 // левый операнд — с уровня сильнее
-	while (checkAny(levels[level])) {                      // { знак <операнд> } — цикл вместо левой рекурсии
+	size_t mark = cstMark();                               // отсюда в дереве разбора начнётся левый операнд
+	CstLift lift(*this);
+	NodePtr left = parseBinary(level + 1);                 // левый операнд — с этажа сильнее
+	while (checkAny(levels[level])) {                      // пока стоит операция этого этажа
+		lift.wrap(levelNames[level], mark);                //   есть знак — появляется узел этажа («Сумма» и т.п.)
 		Token op = cur;                                    //   запомнили знак
 		advance();                                         //   забрали его
-		NodePtr right = parseBinary(level + 1);            //   правый операнд — тоже с уровня сильнее
-		left = makeBinary(op, move(left), move(right));    //   собранное — левая часть следующей операции
-	}                                                      //   (отсюда левая ассоциативность: (a-b)-c)
+		NodePtr right = parseBinary(level + 1);            //   правый операнд — тоже с этажа сильнее
+		left = makeBinary(op, move(left), move(right));    //   всё собранное — левая часть следующей операции
+	}
 	return left;
 }
 
-/*
- <унарное> ::= ( "-" | "!" ) <унарное> | <первичное>
- ВОЗВРАТ: узел Unary (знак в token, операнд в children[0]) или результат parsePrimary
-          ─► parseBinary(6).
-*/
+// <унарное> ::= ( "-" | "!" ) <унарное> | <первичное>
 NodePtr Parser::parseUnary() {
-	if (checkAny({ TokenCode::OpMinus, TokenCode::OpLogNot })) {
-		Token op = cur;
-		advance();
-		NodePtr n = makeNode(NodeKind::Unary, op);
-		n->children.push_back(parseUnary());               // рекурсия на себя: !!a = !(!a)
+	if (checkAny({ TokenCode::OpMinus, TokenCode::OpLogNot })) {   // перед операндом стоит - или !
+		CstScope s(*this, "Унарное");
+		Token op = cur;                                    // запомнили знак
+		advance();                                         // забрали его
+		NodePtr n = makeNode(NodeKind::Unary, op);         // узел операции
+		n->children.push_back(parseUnary());               // после знака снова операнд (так работают !!a, --x)
 		return n;
 	}
-	return parsePrimary();
+	return parsePrimary();                                 // знака нет — сразу операнд
 }
 
-/*
- <первичное> ::= константа | true | false
-               | идентификатор [ "(" [ <аргументы> ] ")" ]
-               | "(" <выражение> ")"
- Ветка выбирается по одной лексеме cur — это и есть LL(1).
- ВОЗВРАТ: Const / Var / Call или узел выражения из скобок ─► parseUnary.
-*/
+// <первичное> ::= константа | true | false
+//               | идентификатор [ "(" [ <аргументы> ] ")" ]
+//               | "(" <выражение> ")"
 NodePtr Parser::parsePrimary() {
-	// 1. константа: лексема целиком уходит в узел (значение — в token.value от лексера)
+	// 1. константа: 5, true, false
 	if (checkAny({ TokenCode::IntConst, TokenCode::BoolTrue, TokenCode::BoolFalse })) {
 		Token t = cur;
 		advance();
 		return makeNode(NodeKind::Const, t);
 	}
 
-	// 2. имя: переменная или вызов — решает следующая лексема
+	// 2. имя: переменная или вызов функции
 	if (check(TokenCode::Identfier)) {
-		Token name = cur;
+		Token name = cur;                                  // запомнили имя
+		size_t mark = cstMark();
 		advance();
-		if (!match(TokenCode::LParent)) {                  // нет «(» — переменная
-			return makeNode(NodeKind::Var, name);
+		if (!check(TokenCode::LParent)) {                  // за именем нет «(»
+			return makeNode(NodeKind::Var, name);          //   — это переменная
 		}
-		NodePtr call = makeNode(NodeKind::Call, name);     // есть «(» — вызов;
-		parseArguments(*call);                             //   аргументы допишутся в call->children
-		return call;
+		CstLift call(*this);
+		call.wrap("Вызов", mark);                          // имя и скобки с аргументами — в узел «Вызов»
+		advance();                                         // забрали «(»
+		NodePtr callNode = makeNode(NodeKind::Call, name);
+		parseArguments(*callNode);
+		return callNode;
 	}
 
-	// 3. скобки: разбор заново с уровня 0; отдельного узла для скобок нет
-	if (match(TokenCode::LParent)) {
-		NodePtr inner = parseExpression();
-		expect(TokenCode::RParent, "«)»");
-		return inner;
+	// 3. выражение в скобках: (2 + 3)
+	if (check(TokenCode::LParent)) {
+		CstScope s(*this, "Скобки");                       // «(», выражение, «)» — в один узел
+		advance();                                         // забрали «(»
+		NodePtr inner = parseExpression();                 // разобрали содержимое с самого верхнего этажа
+		expect(TokenCode::RParent, "«)»");                 // скобка обязана закрыться
+		return inner;                                      // узла для скобок нет — только содержимое
 	}
 
-	// 4. ни одна ветка не подошла — «некорректное выражение»
+	// 4. ничего не подошло
 	error("Ожидалось выражение");
 }
 
+// <оператор> ::= <объявление> | <if> | <while> | <return> | <блок>
+//              | идентификатор <продолжение>
 /*
- <аргументы> ::= <выражение> { "," <выражение> }  и закрывающая «)».
- Узла не возвращает: каждый аргумент сразу кладётся в call.children
- (call передан по ссылке из parsePrimary или parseStatement).
- cur ДО: лексема сразу после «(».  cur ПОСЛЕ: лексема после «)».
-*/
-void Parser::parseArguments(Node& call) {
-	if (!check(TokenCode::RParent)) {                      // сразу «)» — аргументов нет
-		call.children.push_back(parseExpression());
-		while (match(TokenCode::Comm)) {
-			call.children.push_back(parseExpression());
-		}
-	}
-	expect(TokenCode::RParent, "«)»");
-}
-
-/* ===================== Операторы ===================== */
-
-/*
- <оператор> ::= <объявление> | <условный> | <цикл> | <возврат> | <блок>
-              | идентификатор <продолжение>
- Вызывают: parseBlock (оператор блока), parseIf и parseWhile (тело).
- cur ДО: первая лексема оператора — по ней выбирается функция.
- ВОЗВРАТ: узел оператора ─► parseBlock кладёт его в children блока
-          (или parseIf / parseWhile — как ветку / тело).
-*/
+Смотрим на первую лексему и решаем, какой оператор начинается.
+Если это имя — забираем его и смотрим на следующую лексему:
+«=» — присваивание, «(» — вызов функции, иначе ошибка.
+ */
 NodePtr Parser::parseStatement() {
-	if (checkAny(types))                return parseVarDecl();
-	if (check(TokenCode::kwIf))         return parseIf();
-	if (check(TokenCode::kwWhile))      return parseWhile();
-	if (check(TokenCode::kwReturn))     return parseReturn();
-	if (check(TokenCode::LFigParent))   return parseBlock();
+	if (checkAny({ TokenCode::kwInt, TokenCode::kwWord, TokenCode::kwBool })) return parseVarDecl();
+	if (check(TokenCode::kwIf))        return parseIf();
+	if (check(TokenCode::kwWhile))     return parseWhile();
+	if (check(TokenCode::kwReturn))    return parseReturn();
+	if (check(TokenCode::LFigParent))  return parseBlock();
 
 	if (check(TokenCode::Identfier)) {
-		Token name = cur;                                  // имя уйдёт в token узла
+		Token name = cur;
+		size_t mark = cstMark();
 		advance();
-		// <продолжение> ::= "=" <выражение> ";"          — присваивание
+		CstLift c(*this);                                  // имя и всё после него — в узел оператора
+		if (check(TokenCode::OpAssign))     c.wrap("Присваивание", mark);
+		else if (check(TokenCode::LParent)) c.wrap("Вызов", mark);
+		// <продолжение> ::= "=" <выражение> ";"
 		if (match(TokenCode::OpAssign)) {
 			NodePtr n = makeNode(NodeKind::Assign, name);
-			n->children.push_back(parseExpression());      // children[0] — присваиваемое значение
+			n->children.push_back(parseExpression());
 			expect(TokenCode::DotComm, "«;»");
 			return n;
 		}
-		//                 | "(" [ <аргументы> ] ")" ";"   — вызов как оператор (например, print)
+		//                 | "(" [ <аргументы> ] ")" ";"
 		if (match(TokenCode::LParent)) {
 			NodePtr n = makeNode(NodeKind::Call, name);
 			parseArguments(*n);
 			expect(TokenCode::DotComm, "«;»");
 			return n;
 		}
-		error("Ожидалось «=» или «(»");                    // нарушен порядок лексем
+		error("Ожидалось «=» или «(»");
 	}
 
 	error("Ожидался оператор");
 }
 
-/*
- <условный> ::= "if" "(" <выражение> ")" <оператор> [ "else" <оператор> ]
- ВОЗВРАТ: узел If: children[0] — условие, [1] — then, [2] — else (если есть).
+void Parser::parseArguments(Node& call){
+	CstLift args(*this);
+	args.wrap("Аргументы", cstMark() - 1);             // «(» уже забрана вызывающим — это последний лист; узел — от неё до «)»
+	if(!check(TokenCode::RParent)){// есть «(» — это вызов, сразу «)» — аргументов нет; иначе разбираем их
+		call.children.push_back(parseExpression());//   первый аргумент
+		while(match(TokenCode::Comm)){//   пока есть запятая —
+			call.children.push_back(parseExpression());//   след аргумент
+		}
+	}
+	expect(TokenCode::RParent, "«)»");
+}
+/* 
+<if> ::= "if" "(" <выражение> ")" <оператор> ["else" <оператор> ]
+@return Указатель на узел дерева разбора, представляющий if-оператор
 */
-NodePtr Parser::parseIf() {
-	NodePtr n = makeNode(NodeKind::If, cur);               // token узла — лексема if (для строки ошибок)
+NodePtr Parser::parseIf(){
+	CstScope s(*this, "Условие");
+	NodePtr n = makeNode(NodeKind::If,cur);
 	advance();
 	expect(TokenCode::LParent, "«(» после if");
 	n->children.push_back(parseExpression());
 	expect(TokenCode::RParent, "«)» после условия if");
 	n->children.push_back(parseStatement());
-	if (match(TokenCode::kwElse)) {                        // ближайший if забирает else первым —
-		n->children.push_back(parseStatement());           //   так решён «висячий» else
+	if(match(TokenCode::kwElse)){
+		n->children.push_back(parseStatement());
 	}
 	return n;
 }
-
 /*
- <цикл> ::= "while" "(" <выражение> ")" <оператор>
- ВОЗВРАТ: узел While: children[0] — условие, [1] — тело.
+<while> ::= "while" "(" <выражение> ")" <оператор>
+@return Указатель на узел дерева разбора, представляющий while-оператор
 */
-NodePtr Parser::parseWhile() {
-	NodePtr n = makeNode(NodeKind::While, cur);
+NodePtr Parser::parseWhile(){
+	CstScope s(*this, "Цикл");
+	NodePtr n = makeNode(NodeKind::While,cur);
 	advance();
 	expect(TokenCode::LParent, "«(» после while");
 	n->children.push_back(parseExpression());
@@ -337,103 +297,104 @@ NodePtr Parser::parseWhile() {
 	n->children.push_back(parseStatement());
 	return n;
 }
-
 /*
- <возврат> ::= "return" <выражение> ";"
- ВОЗВРАТ: узел Return: children[0] — возвращаемое выражение.
+<return> ::= "return" <выражение> ";"
+@return Указатель на узел дерева разбора, представляющий return-оператор
 */
-NodePtr Parser::parseReturn() {
-	NodePtr n = makeNode(NodeKind::Return, cur);
+NodePtr Parser::parseReturn(){
+	CstScope s(*this, "Возврат");
+	NodePtr n = makeNode(NodeKind::Return,cur);
 	advance();
 	n->children.push_back(parseExpression());
 	expect(TokenCode::DotComm, "«;» после return");
 	return n;
 }
-
 /*
- <блок> ::= "{" { <оператор> } "}"
- Первая точка восстановления: ошибка внутри оператора ловится здесь,
- поэтому один плохой оператор не обрывает разбор всего блока.
- cur ДО: «{».  cur ПОСЛЕ: лексема после «}».
- ВОЗВРАТ: узел Block со всеми удачно разобранными операторами ─► parseFunction
-          (тело функции) или parseStatement (вложенный блок).
+<block> ::= "{" <оператор> { <оператор> } "}"
+@return Указатель на узел дерева разбора, представляющий блок
 */
-NodePtr Parser::parseBlock() {
-	NodePtr n = makeNode(NodeKind::Block, cur);
+NodePtr Parser::parseBlock(){
+	CstScope s(*this, "Блок");
+	NodePtr n = makeNode(NodeKind::Block,cur);
 	advance();
-	while (!check(TokenCode::RFigParent) && !check(TokenCode::EndOfFile)) {
+	while(!check(TokenCode::RFigParent) && !check(TokenCode::EndOfFile)){
 		try {
-			n->children.push_back(parseStatement());       // узел оператора ─► children блока
+			n->children.push_back(parseStatement());
 		}
-		catch (const SyntaxError& e) {                     // исключение пришло из error() внутри оператора
-			report(e);                                     //   ошибка ─► errorList
-			syncStatement();                               //   пропуск до конца оператора, разбор дальше
+		catch (const SyntaxError& e) {      // оператор с ошибкой: запомнили её,
+			report(e);                      //   пропустили остаток оператора
+			recovering = true;              //   (пропущенное в дерево разбора не пишем)
+			syncStatement();                //   и разбираем следующий
+			recovering = false;
 		}
 	}
-	expect(TokenCode::RFigParent, "«}» после блока");     // нет «}» — исключение уйдёт в parseProgram
+	expect(TokenCode::RFigParent, "«}» после блока");
 	return n;
 }
-
 /*
- <объявление> ::= <тип> идентификатор [ "=" <выражение> ] ";"
- ВОЗВРАТ: узел VarDecl: token — имя, type — код типа, children[0] — начальное значение (если есть).
+<объявление> ::= <тип> идентификатор ";"
+@return Указатель на узел дерева разбора, представляющий объявление переменной
 */
 NodePtr Parser::parseVarDecl() {
+	CstScope s(*this, "Объявление");
 	TokenCode type = expectType("переменной");
-	Token name = expect(TokenCode::Identfier, "имя переменной");  // expect вернул лексему имени
+	Token name = expect(TokenCode::Identfier, "имя переменной");
 	NodePtr n = makeNode(NodeKind::VarDecl, name);
 	n->type = type;
 	if (match(TokenCode::OpAssign)) n->children.push_back(parseExpression());
 	expect(TokenCode::DotComm, "«;»");
 	return n;
 }
-
 /*
- <тип> ::= "int" | "word" | "bool"
- Узла не создаёт. ВОЗВРАТ: код типа ─► поле type узла Function / Param / VarDecl.
+<type> ::= "int" | "word" | "bool"
+@return Код типа переменной
 */
 TokenCode Parser::expectType(const std::string& what) {
-	if (checkAny(types)) {
+	CstScope s(*this, "Тип");
+	if (checkAny({ TokenCode::kwInt, TokenCode::kwWord, TokenCode::kwBool })) {
 		TokenCode type = cur.code;
 		advance();
 		return type;
 	}
 	error("Ожидался тип " + what);
 }
-
-/* ===================== Функции и программа ===================== */
-
 /*
- <функция> ::= <тип> <имя функции> "(" [ <параметры> ] ")" <блок>
- ВОЗВРАТ: узел Function: token — имя, type — тип результата,
-          children — сначала Param, последним — Block ─► parseProgram.
+<function> ::= <тип> идентификатор "(" { <тип> идентификатор { "," <тип> идентификатор } } ")" <блок>
+@return Указатель на узел дерева разбора, представляющий функцию
 */
 NodePtr Parser::parseFunction() {
+	CstScope s(*this, "Функция");
 	TokenCode type = expectType("функции");
 
-	if (!checkAny({ TokenCode::Identfier, TokenCode::kwMain })) {   // main — ключевое слово
+	if(!checkAny({ TokenCode::Identfier, TokenCode::kwMain })){
 		error("Ожидалось имя функции");
 	}
 	NodePtr n = makeNode(NodeKind::Function, cur);
 	n->type = type;
-	advance();
+	{
+		CstScope name(*this, "Имя функции");             // имя — в свой узел
+		advance();
+	}
 
 	expect(TokenCode::LParent, "«(» после имени функции");
-	if (!check(TokenCode::RParent)) {
-		n->children.push_back(parseParam());
-		while (match(TokenCode::Comm)) {
+	{
+		CstLift params(*this);
+		params.wrap("Параметры", cstMark() - 1);           // узел от «(» до «)», как на доске
+		if (!check(TokenCode::RParent)) {
 			n->children.push_back(parseParam());
+			while (match(TokenCode::Comm)) {
+				n->children.push_back(parseParam());
+			}
 		}
+		expect(TokenCode::RParent, "«)» после списка параметров");
 	}
-	expect(TokenCode::RParent, "«)» после списка параметров");
 
-	n->children.push_back(parseBlock());                   // тело — последний ребёнок
+	n->children.push_back(parseBlock());
 	return n;
 }
-
 /*
- <параметр> ::= <тип> идентификатор
- ВОЗВРАТ: узел Param (token — имя, type — тип) ─► children функции.
+<param> ::= <тип> идентификатор
+@return Указатель на узел дерева разбора, представляющий параметр функции
 */
 NodePtr Parser::parseParam() {
 	TokenCode type = expectType("параметра");
@@ -442,53 +403,39 @@ NodePtr Parser::parseParam() {
 	n->type = type;
 	return n;
 }
-
-/*
- <программа> ::= { <функция> }   — начальный символ грамматики.
- Вторая точка восстановления: сюда доходят ошибки в заголовке функции,
- незакрытый блок (нет «}» до конца файла) и лишние лексемы вне функций.
- ВОЗВРАТ: корень Program ─► main.cpp / gui.cpp (printTree, вкладка «Дерево»,
-          а при отсутствии ошибок — дальше в семантический анализ).
-*/
+// Разбор всей программы: <программа> ::= { <функция> }
 NodePtr Parser::parseProgram() {
+	CstScope s(*this, "Программа");                      // корень дерева разбора
 	NodePtr programNode = makeNode(NodeKind::Program, Token{});
 	while (!check(TokenCode::EndOfFile)) {
 		try {
-			if (!checkAny(types)) {                        // на верхнем уровне — только описание функции
+			if (!checkAny(types)) {        // функция может начинаться только с типа
 				error("Лишняя лексема вне функций: ожидалось описание функции или конец файла");
 			}
-			programNode->children.push_back(parseFunction());   // узел Function ─► children программы
+			programNode->children.push_back(parseFunction());
 		}
-		catch (const SyntaxError& e) {
-			report(e);                                     // ошибка ─► errorList
-			syncFunction();                                // пропуск до следующей функции
+		catch (const SyntaxError& e) {      // ошибка, которую не поймал блок (заголовок функции,
+			report(e);                      //   незакрытый блок, лишняя лексема) —
+			recovering = true;
+			syncFunction();                 //   переходим к следующей функции
+			recovering = false;
 		}
 	}
 	return programNode;
 }
 
-/* ===================== Восстановление после ошибок (режим паники) ===================== */
-
-/*
- Ошибка ─► errorList (читается снаружи через errors()).
- Вторую ошибку на той же строке и позиции не пишем — это следствие первой.
-*/
+// Записать ошибку. Вторую ошибку на том же месте не пишем — это следствие первой
 void Parser::report(const SyntaxError& e) {
 	if (!errorList.empty() && errorList.back().line == e.line && errorList.back().col == e.col) return;
 	errorList.push_back(e);
 }
 
 /*
- * Вызывается из catch в parseBlock. Пропускает остаток оператора с ошибкой.
- * Остановка:
- *   «;»                                   — забираем, оператор кончился;
- *   «}», закрывающая пропущенный блок     — забираем, оператор кончился;
- *   «}» самого блока                      — НЕ забираем, её ждёт parseBlock;
- *   тип, if, while, return                — НЕ забираем, с них начнётся следующий оператор
- *                                           (например, когда забыли «;»).
- * Зацикливания нет: без продвижения выходим только на «}» (цикл parseBlock закончится)
- * или на лексеме, которую следующий parseStatement гарантированно заберёт.
- */
+Восстановление внутри блока (режим паники): пропускаем лексемы до конца оператора.
+Остановка: «;» (забираем), «}», закрывающая пропущенный вложенный блок (забираем),
+или лексема, с которой начинается следующий оператор: тип, if, while, return (не забираем).
+«}» самого блока тоже не забираем: его ждёт parseBlock.
+*/
 void Parser::syncStatement() {
 	int depth = 0;                                         // глубина пропущенных «{ }»
 	while (!check(TokenCode::EndOfFile)) {
@@ -496,28 +443,26 @@ void Parser::syncStatement() {
 			++depth;
 		}
 		else if (check(TokenCode::RFigParent)) {
-			if (depth == 0) return;
-			if (--depth == 0) { 
-				advance(); return; 
-			}
+			if (depth == 0) return;                        // «}» текущего блока — остановились перед ней
+			if (--depth == 0) { advance(); return; }       // закрыли пропущенный блок — оператор кончился
 		}
 		else if (depth == 0) {
-			if (check(TokenCode::DotComm)) {
+			if (check(TokenCode::DotComm)) {               // «;» — конец оператора, забрали её
 				advance();
 				return;
 			}
 			if (checkAny(types) || checkAny({ TokenCode::kwIf, TokenCode::kwWhile, TokenCode::kwReturn }))
-				return;
+				return;                                    // начало следующего оператора (например, забыли «;»)
 		}
 		advance();
 	}
 }
 
 /*
- * Вызывается из catch в parseProgram. Пропускает лексемы до типа вне фигурных
- * скобок — с него начнётся следующая функция. Хотя бы одна лексема пропускается
- * всегда (do-while), иначе можно зациклиться на той же ошибке.
- */
+Восстановление на верхнем уровне: пропускаем лексемы до типа, с которого начнётся
+следующая функция (вне фигурных скобок). Хотя бы одну лексему пропускаем всегда,
+иначе можно зациклиться на той же ошибке.
+*/
 void Parser::syncFunction() {
 	int depth = 0;
 	do {

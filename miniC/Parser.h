@@ -1,85 +1,99 @@
 ﻿#pragma once
 #include <string>
-#include <vector>
-#include "Ast.h"     // Node, NodePtr, makeNode — из чего строится дерево
-#include "Lexer.h"   // Lexer, Token, TokenCode — откуда берутся лексемы (ЛР 1)
+#include "Ast.h"
+#include "Cst.h"
+#include "Lexer.h"
 
-/**
- * @brief Синтаксическая ошибка.
- *
- * Создаётся в Parser::error() по текущей лексеме cur:
- *   message — «Ожидалось <что>, а встретилось «<что было>»»;
- *   line, col — строка и позиция лексемы (их записал лексер в Token).
- * Путь: error() ─throw─► catch в parseBlock / parseProgram ─► report() ─► errorList
- *       ─► Parser::errors() ─► main.cpp (печать) и gui.cpp (вкладка «Ошибки»).
- */
 struct SyntaxError
 {
 	std::string message;
 	int line, col;
 };
 
-/**
- * @brief Синтаксический анализатор miniC — рекурсивный спуск по грамматике LL(1).
- *
- * Использование (main.cpp, gui.cpp):
- *   Parser parser(source);                  // source ─► Lexer, первая лексема ─► cur
- *   NodePtr tree = parser.parseProgram();   // дерево; исключения наружу не выходят
- *   if (!parser.errors().empty()) { ... }   // все найденные ошибки
- */
 class Parser
 {
 public:
 	explicit Parser(const std::string& source);
-
-	/*
-	 Разбор всей программы (начальный символ <программа>). Возвращает корень Program.
-	 Если были ошибки, дерево неполное: в нём нет операторов, которые не удалось разобрать.
-	*/
-	NodePtr parseProgram();
-
-	// Все синтаксические ошибки в порядке появления.
-	const std::vector<SyntaxError>& errors() const { return errorList; }
-
+	NodePtr parseProgram(); //Разбор программы целиком; ошибки не бросаются наружу, а собираются в список
+	const std::vector<SyntaxError>& errors() const { return errorList; } //Все найденные синтаксические ошибки
+	CstPtr takeCst() { return std::move(cstRoot); } //Забрать дерево разбора (CST); вызывать после parseProgram
+	
+	
 private:
-	Lexer lexer;                        // лексический анализатор ЛР 1; лексемы берёт advance()
-	Token cur;                          // текущая, ещё не разобранная лексема — по ней выбираются ветки
-	std::vector<SyntaxError> errorList; // накопленные ошибки (заполняет report)
-
-	// --- восстановление после ошибок ---
-	void report(const SyntaxError& e);  // ошибка ─► errorList (повтор на том же месте не пишем)
-	void syncStatement();               // пропустить лексемы до конца оператора (из parseBlock)
-	void syncFunction();                // пропустить лексемы до следующей функции (из parseProgram)
-
-	// --- базовые операции над cur ---
-	void advance();                                         // cur = lexer.nextToken()
-	bool check(TokenCode code) const;                       // cur такого вида? (не забирает)
-	bool checkAny(const std::vector<TokenCode>& codes) const;
-	bool match(TokenCode code);                             // совпала — забрать и true
-	Token expect(TokenCode code, const std::string& what);  // обязана совпасть, иначе error()
-	TokenCode expectType(const std::string& what);          // <тип>: код типа ─► поле type узла
+	Lexer lexer;
+	Token cur;//Текущая лексема
+	std::vector<SyntaxError> errorList;//Найденные ошибки
 
 	/*
-	 [[noreturn]] — функция всегда бросает исключение и не возвращается;
-	 без пометки компилятор предупреждает «не все пути возвращают значение».
+	 Дерево разбора (CST). Строится попутно с сокращённым деревом:
+	 каждая функция разбора открывает узел своего нетерминала (CstScope),
+	 а advance() добавляет забранную лексему листом в открытый сейчас узел.
 	*/
-	[[noreturn]] void error(const std::string& message);
+	CstPtr cstRoot;                     //корень — узел Программа
+	std::vector<CstNode*> cstStack;     //открытые узлы; back() — тот, куда идут новые листья
+	bool recovering = false;            //во время восстановления пропущенные лексемы в дерево не пишем
+	void cstLeaf(const Token& t);       //лексему — листом в текущий узел
 
-	// --- функции разбора: одна на правило РБНФ, каждая возвращает свой узел ---
-	NodePtr parseFunction();            // <функция>    ─► Function
-	NodePtr parseParam();               // <параметр>   ─► Param
-	NodePtr parseBlock();               // <блок>       ─► Block (точка восстановления)
-	NodePtr parseStatement();           // <оператор>   ─► выбор ветки по cur
-	NodePtr parseVarDecl();             // <объявление> ─► VarDecl
-	NodePtr parseIf();                  // <условный>   ─► If
-	NodePtr parseWhile();               // <цикл>       ─► While
-	NodePtr parseReturn();              // <возврат>    ─► Return
-	void parseArguments(Node& call);    // <аргументы>  ─► дописывает детей в узел Call
+	/*
+	 Узел нетерминала на время работы функции разбора.
+	 Конструктор создаёт узел и делает его текущим, деструктор возвращает предыдущий.
+	 Деструктор срабатывает и при исключении, поэтому стек не ломается после ошибки.
+	*/
+	struct CstScope {
+		Parser& p;
+		CstScope(Parser& parser, const char* name);
+		~CstScope();
+	};
 
-	NodePtr parseExpression();          // <выражение>  ─► parseBinary(0)
-	NodePtr parseBinary(size_t level);  // <или> … <произведение> ─► Binary
-	NodePtr parseUnary();               // <унарное>    ─► Unary
-	NodePtr parsePrimary();             // <первичное>  ─► Const / Var / Call
+	/*
+	 Узел, который создаётся задним числом — только если конструкция действительно есть.
+	 Например, узел «Сумма» нужен, только когда после левого операнда встретился «+» или «-»;
+	 иначе уровень не показывается, и дерево не обрастает цепочками пустых уровней.
+	 wrap() переносит узлы, добавленные в текущий узел начиная с отметки mark, в новый узел
+	 и делает его текущим; деструктор возвращает предыдущий (и при исключении тоже).
+	*/
+	struct CstLift {
+		Parser& p;
+		bool active = false;
+		explicit CstLift(Parser& parser) : p(parser) {}
+		void wrap(const char* name, size_t mark);
+		~CstLift();
+	};
+	size_t cstMark() const;             //сколько потомков сейчас у текущего узла — отметка для CstLift
 
-	static NodePtr makeBinary(const Token& op, NodePtr left, NodePtr right);  // узел Binary из знака и двух операндов
+	void report(const SyntaxError& e);//Записать ошибку в список (повтор на том же месте не пишем)
+	void syncStatement();//Восстановление: пропустить лексемы до конца оператора
+	void syncFunction();//Восстановление: пропустить лексемы до начала следующей функции
+
+	
+	bool checkAny(const std::vector<TokenCode>& codes) const;
+	void advance();//переход на следующую лексему
+	bool check(TokenCode code) const;//Проверка вида лексемы
+	bool match(TokenCode code);//Если подходит, то забираем и возвращаем true
+	Token expect(TokenCode code, const std::string& what);//Ожидание|Реальность - обязана быть такой лексемой иначе ошибка
+
+	static NodePtr makeBinary(const Token& op, NodePtr left, NodePtr right);
+
+	NodePtr parseBinary(size_t level);
+	NodePtr parseUnary();
+	NodePtr parsePrimary();
+	
+	NodePtr parseVarDecl();
+	NodePtr parseIf();
+	NodePtr parseWhile();
+	NodePtr parseReturn();
+	NodePtr parseBlock();
+	void parseArguments(Node& call);
+
+	TokenCode expectType(const std::string& what);
+
+	NodePtr parseExpression();
+	NodePtr parseStatement();
+	
+	NodePtr parseFunction();
+	NodePtr parseParam();
+	// [[noreturn]] — управление не возвращается в место вызова: функция всегда бросает исключение.
+	// Без этой пометки компилятор предупреждает «не все пути возвращают значение»
+	// в методах, которые заканчиваются вызовом error (например, expect).
+	[[noreturn]] void error(const std::string& message);//бросить SyntaxError на текущей лексеме
 };
